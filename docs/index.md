@@ -13,6 +13,8 @@ A performant, reusable horizontal timeline widget with:
 - Double-tap to center on events midpoint
 - Event markers with tap callback
 
+![Interactive timeline demo](assets/demo1.png)
+
 ## Install
 
 Add the package to your `pubspec.yaml`:
