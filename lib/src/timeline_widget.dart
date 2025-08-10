@@ -256,24 +256,30 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                     }
                   }
                 },
-                child: CustomPaint(
-                  size: Size(paintWidth, paintHeight),
-                  painter: _Painter(
-                    events: widget.events,
-                    zoom: _zoom,
-                    panOffset: _panOffset,
-                    timelineColor: widget.timelineColor,
-                    eventColor: widget.eventColor,
-                    basePxPerMs: widget.basePixelsPerMillisecond,
-                    tickLabelColor: widget.tickLabelColor,
-                    axisThickness: widget.axisThickness,
-                    majorTickThickness: widget.majorTickThickness,
-                    minorTickThickness: widget.minorTickThickness,
-                    minorTickColor: widget.minorTickColor,
-                    labelStyleByLOD: widget.labelStyleByLOD,
-                    labelStride: widget.labelStride,
-                    debug: widget.debugMode,
-                    vertical: vertical,
+                child: SizedBox(
+                  width: paintWidth,
+                  height: paintHeight,
+                  child: ClipRect(
+                    child: CustomPaint(
+                      size: Size(paintWidth, paintHeight),
+                      painter: _Painter(
+                        events: widget.events,
+                        zoom: _zoom,
+                        panOffset: _panOffset,
+                        timelineColor: widget.timelineColor,
+                        eventColor: widget.eventColor,
+                        basePxPerMs: widget.basePixelsPerMillisecond,
+                        tickLabelColor: widget.tickLabelColor,
+                        axisThickness: widget.axisThickness,
+                        majorTickThickness: widget.majorTickThickness,
+                        minorTickThickness: widget.minorTickThickness,
+                        minorTickColor: widget.minorTickColor,
+                        labelStyleByLOD: widget.labelStyleByLOD,
+                        labelStride: widget.labelStride,
+                        debug: widget.debugMode,
+                        vertical: vertical,
+                      ),
+                    ),
                   ),
                 ),
               ),

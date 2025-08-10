@@ -67,66 +67,99 @@ class MyHomePage extends StatelessWidget {
       appBar: AppBar(title: Text(title)),
       body: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Interactive Timeline Demo'),
-            const SizedBox(height: 12),
-            SizedBox(
-              // height: 300, // or expand as needed
-              // child: TimelineWidget(
-              //   height: 120, // cross-axis thickness used by the painter
-              //   orientation: Axis.vertical,
-              height: 140,
-              child: TimelineWidget(
-                height: 120,
-                debugMode: false,
-                events: events,
-                minZoomLOD: TimeScaleLOD.month,
-                maxZoomLOD: TimeScaleLOD.century,
-                tickLabelColor: const Color(0xFF444444),
-                axisThickness: 2,
-                majorTickThickness: 2,
-                minorTickThickness: 1,
-                minorTickColor: Colors.grey.shade500,
-                labelStride: 1,
-                labelStyleByLOD: const {
-                  TimeScaleLOD.all: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey,
-                  ),
-                  // TimeScaleLOD.decade: TextStyle(
-                  //   fontSize: 12,
-                  //   color: Color.fromARGB(255, 255, 123, 0),
-                  // ),
-                  // TimeScaleLOD.century: TextStyle(
-                  //   color: Color.fromARGB(255, 255, 0, 0),
-                  //   fontSize: 16,
-                  //   fontWeight: FontWeight.w700,
-                  // ),
-                  // TimeScaleLOD.millennium: TextStyle(
-                  //   color: Colors.black,
-                  //   fontSize: 18,
-                  //   fontWeight: FontWeight.w700,
-                  // ),
-                },
-                onZoomChanged: (z) => debugPrint('zoom: $z'),
-                onEventTap: (e) => ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Interactive Timeline Demo'),
+              const SizedBox(height: 12),
+              // Horizontal timeline (default)
+              SizedBox(
+                height: 140,
+                child: TimelineWidget(
+                  height: 120,
+                  debugMode: false,
+                  events: events,
+                  minZoomLOD: TimeScaleLOD.month,
+                  maxZoomLOD: TimeScaleLOD.century,
+                  tickLabelColor: const Color(0xFF444444),
+                  axisThickness: 2,
+                  majorTickThickness: 2,
+                  minorTickThickness: 1,
+                  minorTickColor: Colors.grey.shade500,
+                  labelStride: 1,
+                  labelStyleByLOD: const {
+                    TimeScaleLOD.all: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey,
+                    ),
+                  },
+                  onZoomChanged: (z) => debugPrint('zoom: $z'),
+                  onEventTap: (e) => ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text('Gestures:'),
-            const Text(' - Mouse wheel/trackpad: zoom anchored under cursor'),
-            const Text(' - Drag: pan horizontally'),
-            const Text(' - Double-tap: center on events midpoint'),
-          ],
+              const SizedBox(height: 24),
+              const Text('Vertical Timeline Demo'),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 140, // constrain cross-axis thickness
+                    height: 300, // desired main-axis extent
+                    child: TimelineWidget(
+                      height: 120, // cross-axis thickness used by painter
+                      orientation: Axis.vertical,
+                      debugMode: false,
+                      events: events,
+                      minZoomLOD: TimeScaleLOD.month,
+                      maxZoomLOD: TimeScaleLOD.century,
+                      tickLabelColor: const Color(0xFF444444),
+                      axisThickness: 2,
+                      majorTickThickness: 2,
+                      minorTickThickness: 1,
+                      minorTickColor: Colors.grey.shade500,
+                      labelStride: 1,
+                      labelStyleByLOD: const {
+                        TimeScaleLOD.all: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey,
+                        ),
+                      },
+                      onZoomChanged: (z) => debugPrint('zoom: $z'),
+                      onEventTap: (e) =>
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
+                              ),
+                            ),
+                          ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Text(
+                      'Tips:\n- Drag up/down to pan.\n- Use trackpad/mouse wheel to zoom anchored under the cursor.\n- Tap markers to show a SnackBar.',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Text('Gestures:'),
+              const Text(' - Mouse wheel/trackpad: zoom anchored under cursor'),
+              const Text(' - Drag: pan along the axis'),
+              const Text(' - Double-tap: center on events midpoint'),
+            ],
+          ),
         ),
       ),
     );
