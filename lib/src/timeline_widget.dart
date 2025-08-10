@@ -7,16 +7,7 @@ import 'package:flutter/material.dart';
 
 typedef TimelineEventTap = void Function(TimelineEvent event);
 
-enum TimeScaleLOD {
-  hour,
-  day,
-  week,
-  month,
-  year,
-  decade,
-  century,
-  millennium,
-}
+enum TimeScaleLOD { hour, day, week, month, year, decade, century, millennium }
 
 class TimelineEvent {
   final DateTime date;
@@ -146,8 +137,10 @@ class _TimelineWidgetState extends State<TimelineWidget> {
   // Keep anchor under cursor/fingers during zoom
   void _zoomAnchored(double factor, double anchorX) {
     if (factor == 1 || !factor.isFinite) return;
-    final newZoom =
-        (_zoom * factor).clamp(_effectiveMinZoom, _effectiveMaxZoom);
+    final newZoom = (_zoom * factor).clamp(
+      _effectiveMinZoom,
+      _effectiveMaxZoom,
+    );
     final base = widget.basePixelsPerMillisecond;
     final oldScale = base * _zoom;
     final newScale = base * newZoom;
@@ -164,8 +157,9 @@ class _TimelineWidgetState extends State<TimelineWidget> {
   @override
   Widget build(BuildContext context) {
     return ScrollConfiguration(
-      behavior: ScrollConfiguration.of(context)
-          .copyWith(physics: const NeverScrollableScrollPhysics()),
+      behavior: ScrollConfiguration.of(
+        context,
+      ).copyWith(physics: const NeverScrollableScrollPhysics()),
       child: NotificationListener<ScrollNotification>(
         onNotification: (_) => true,
         child: LayoutBuilder(
@@ -194,7 +188,9 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                 onTapDown: (d) {
                   if (widget.onEventTap == null) return;
                   final hit = _hitTestEvent(
-                      d.localPosition, Size(cts.maxWidth, widget.height));
+                    d.localPosition,
+                    Size(cts.maxWidth, widget.height),
+                  );
                   if (hit != null) widget.onEventTap!(hit);
                 },
                 onScaleUpdate: (details) {
@@ -258,7 +254,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
       }
       targetCenterMs =
           (minDate.millisecondsSinceEpoch + maxDate.millisecondsSinceEpoch) /
-              2.0;
+          2.0;
     } else if (_initialCenterMs != null) {
       targetCenterMs = _initialCenterMs;
     }
@@ -286,6 +282,8 @@ class _TimelineWidgetState extends State<TimelineWidget> {
   }
 }
 
+/// Paints the axis, delegates tick generation/labeling to `_PackageTickManager`,
+/// and then draws event markers. Labels are only created for major ticks.
 class _Painter extends CustomPainter {
   final List<TimelineEvent> events;
   final double zoom;
@@ -327,10 +325,12 @@ class _Painter extends CustomPainter {
       ..strokeWidth = axisThickness;
     canvas.drawLine(Offset(0, centerY), Offset(size.width, centerY), axisPaint);
 
-    // Delegate tick rendering to the high-performance manager copied from app
+    // Delegate tick generation and label selection to the tick manager.
+    // The manager selects a time unit (LOD) based on current zoom so that
+    // consecutive major ticks are roughly a target spacing in pixels.
     final scale = basePxPerMs * zoom;
     final leftMs = -panOffset / scale;
-    // High-performance tick generation/painting
+    // Generate ticks (minor + major) and an optional grid for the viewport
     final tickManager = _PackageTickManager.instance
       ..initialize(
         axisColor: timelineColor,
@@ -343,7 +343,7 @@ class _Painter extends CustomPainter {
     final ticks = tickManager.generateTicks(zoom, panOffset, size);
     // Grid
     tickManager.renderGrid(canvas, zoom, panOffset, size);
-    // Axis ticks
+    // Axis ticks + labels (labels are attached to major ticks only)
     tickManager.renderTicks(
       canvas: canvas,
       ticks: ticks,
@@ -415,6 +415,19 @@ class _PackageTickManager {
 
   void setBasePixelsPerMs(double v) => _basePxPerMs = v;
 
+  /// Core of tick computation.
+  ///
+  /// LOD (time unit) selection:
+  /// - Choose the first candidate unit whose major-tick spacing in pixels
+  ///   (pxPerMs * unit.majorMs) is >= targetPx (roughly 90px by default),
+  ///   so consecutive major ticks are nicely spaced for readability.
+  /// - If none match (very zoomed out), fall back to the coarsest candidate
+  ///   so at least some labels remain visible.
+  ///
+  /// Tick generation:
+  /// - Minor ticks: every unit.minorMs within the viewport with a small height.
+  /// - Major ticks: every unit.majorMs; these receive labels using the unit's
+  ///   formatter. Labels are centered under the tick and culled if off-screen.
   List<_PkgTick> generateTicks(double zoom, double pan, Size size) {
     for (final t in _active) _pool.add(t);
     _active.clear();
@@ -429,18 +442,21 @@ class _PackageTickManager {
       return m == 0 ? v : v + (step - m);
     }
 
+    // Minor ticks at fixed step for the chosen unit
     final firstMinor = ceilTo(leftMs, unit.minorMs);
     for (double t = firstMinor; t <= rightMs; t += unit.minorMs) {
       final x = (t - leftMs) * scale;
       if (x < -50 || x > size.width + 50) continue;
       _active.add(_get().set(t, x, false, '', 8));
     }
+    // Major ticks at fixed step for the chosen unit
     final firstMajor = ceilTo(leftMs, unit.majorMs);
     for (double t = firstMajor; t <= rightMs; t += unit.majorMs) {
       final x = (t - leftMs) * scale;
       if (x < -100 || x > size.width + 100) continue;
-      final label = unit
-          .label(DateTime.fromMillisecondsSinceEpoch(t.toInt(), isUtc: true));
+      final label = unit.label(
+        DateTime.fromMillisecondsSinceEpoch(t.toInt(), isUtc: true),
+      );
       _active.add(_get().set(t, x, true, label, 16));
     }
     return _active;
@@ -476,8 +492,11 @@ class _PackageTickManager {
     int majorIndex = 0;
     for (final tick in ticks) {
       final p = tick.isMajor ? _major : _minor;
-      canvas.drawLine(Offset(tick.x, centerY - tick.h),
-          Offset(tick.x, centerY + tick.h), p);
+      canvas.drawLine(
+        Offset(tick.x, centerY - tick.h),
+        Offset(tick.x, centerY + tick.h),
+        p,
+      );
       if (tick.isMajor && tick.label.isNotEmpty) {
         if (labelStride > 1 && (majorIndex++ % labelStride != 0)) continue;
         TextStyle style = TextStyle(
@@ -515,8 +534,9 @@ class _PackageTickManager {
   TextPainter _tp(String key, TextStyle s) {
     if (!_tpCache.containsKey(key)) {
       _tpCache[key] = TextPainter(
-          text: TextSpan(text: key.split('_').first, style: s),
-          textDirection: TextDirection.ltr);
+        text: TextSpan(text: key.split('_').first, style: s),
+        textDirection: TextDirection.ltr,
+      );
     } else {
       _tpCache[key]!.text = TextSpan(text: key.split('_').first, style: s);
     }
@@ -525,6 +545,12 @@ class _PackageTickManager {
 
   _PkgTick _get() => _pool.isNotEmpty ? _pool.removeLast() : _PkgTick();
 
+  /// Selects the time unit (LOD) for ticks based on zoom.
+  ///
+  /// The goal is to make the distance between consecutive major ticks close to
+  /// `targetPx` (about 90 px). We iterate from fine→coarse units and return the
+  /// first whose major spacing in pixels is >= target. If nothing matches, we
+  /// return the coarsest unit so labels still appear when fully zoomed out.
   _PkgUnit _pickUnit(double pxPerMs) {
     const targetPx = 90.0;
     _PkgUnit mk(double maj, double min, String Function(DateTime) fmt) =>
@@ -540,15 +566,17 @@ class _PackageTickManager {
     final cand = <_PkgUnit>[
       mk(hour, hour / 6, (d) => '${d.hour.toString().padLeft(2, '0')}:00'),
       mk(
-          day,
-          hour,
-          (d) =>
-              '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}'),
+        day,
+        hour,
+        (d) =>
+            '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+      ),
       mk(
-          week,
-          day,
-          (d) =>
-              'W${(((DateTime.utc(d.year, d.month, d.day).difference(DateTime.utc(d.year, 1, 1)).inDays) / 7).floor() + 1)}'),
+        week,
+        day,
+        (d) =>
+            'W${(((DateTime.utc(d.year, d.month, d.day).difference(DateTime.utc(d.year, 1, 1)).inDays) / 7).floor() + 1)}',
+      ),
       mk(month, week, (d) => '${d.year}-${d.month.toString().padLeft(2, '0')}'),
       mk(year, month, (d) => '${d.year}'),
       mk(dec, year, (d) => '${(d.year ~/ 10) * 10}s'),
