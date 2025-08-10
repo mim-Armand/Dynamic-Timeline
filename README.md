@@ -9,9 +9,21 @@ A performant, reusable horizontal timeline widget for Flutter with:
 - Event markers with tap callback
 - Parent scroll suppression (prevents ancestor scrollables from hijacking gestures)
 
+[![pub package](https://img.shields.io/pub/v/interactive_timeline.svg)](https://pub.dev/packages/interactive_timeline)
+Published on [pub.dev](https://pub.dev/packages/interactive_timeline).
+
 ### Screenshot
 
 ![Interactive timeline demo](demo1.png)
+
+### Installation (from pub.dev)
+
+Add to your app's `pubspec.yaml`:
+
+```yaml
+dependencies:
+  interactive_timeline: ^0.1.0
+```
 
 ### Installation (local path in a monorepo)
 

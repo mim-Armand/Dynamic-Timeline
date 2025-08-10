@@ -15,9 +15,12 @@ A performant, reusable horizontal timeline widget with:
 
 ![Interactive timeline demo](assets/demo1.png)
 
+[![pub package](https://img.shields.io/pub/v/interactive_timeline.svg)](https://pub.dev/packages/interactive_timeline)
+Published on [pub.dev](https://pub.dev/packages/interactive_timeline).
+
 ## Install
 
-Add the package to your `pubspec.yaml`:
+Add the package from pub.dev to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
