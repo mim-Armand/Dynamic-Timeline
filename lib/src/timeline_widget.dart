@@ -40,6 +40,8 @@ class TimelineWidget extends StatefulWidget {
   final double maxZoom;
   final double initialZoom;
   final double basePixelsPerMillisecond;
+  // Orientation of the time axis. Horizontal by default.
+  final Axis orientation;
   final TimeScaleLOD? minLOD;
   final TimeScaleLOD? maxLOD;
   final TimeScaleLOD? minZoomLOD;
@@ -70,6 +72,7 @@ class TimelineWidget extends StatefulWidget {
     this.maxZoom = 3.0,
     this.initialZoom = 1.0,
     this.basePixelsPerMillisecond = 0.00002,
+    this.orientation = Axis.horizontal,
     this.minLOD,
     this.maxLOD,
     this.minZoomLOD,
@@ -96,7 +99,7 @@ class TimelineWidget extends StatefulWidget {
 class _TimelineWidgetState extends State<TimelineWidget> {
   late double _zoom;
   double _panOffset = 0;
-  double _lastViewWidth = 0;
+  double _lastViewExtent = 0; // length along the main axis
   double _effectiveMinZoom = 0.5, _effectiveMaxZoom = 3.0;
   double? _initialCenterMs;
 
@@ -182,7 +185,20 @@ class _TimelineWidgetState extends State<TimelineWidget> {
         onNotification: (_) => true,
         child: LayoutBuilder(
           builder: (ctx, cts) {
-            _lastViewWidth = cts.maxWidth;
+            final bool vertical = widget.orientation == Axis.vertical;
+            // Determine paint size based on orientation. `height` is treated
+            // as the cross-axis thickness in both orientations. Guard against
+            // unbounded constraints by falling back to `height`.
+            final double resolvedMaxWidth =
+                cts.maxWidth.isFinite ? cts.maxWidth : widget.height;
+            final double resolvedMaxHeight =
+                cts.maxHeight.isFinite ? cts.maxHeight : widget.height;
+            final double paintWidth =
+                vertical ? widget.height : resolvedMaxWidth;
+            final double paintHeight =
+                vertical ? resolvedMaxHeight : widget.height;
+            final double viewExtent = vertical ? paintHeight : paintWidth;
+            _lastViewExtent = viewExtent.isFinite ? viewExtent : 0;
             return Listener(
               onPointerSignal: (e) {
                 if (e is PointerScrollEvent) {
@@ -196,7 +212,9 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                     factor = math.pow(1.0015, dx).toDouble();
                   }
                   if (factor != 1.0 && factor.isFinite) {
-                    _zoomAnchored(factor, e.localPosition.dx);
+                    final double anchor =
+                        vertical ? e.localPosition.dy : e.localPosition.dx;
+                    _zoomAnchored(factor, anchor);
                   }
                 }
               },
@@ -207,7 +225,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   if (widget.onEventTap == null) return;
                   final hit = _hitTestEvent(
                     d.localPosition,
-                    Size(cts.maxWidth, widget.height),
+                    Size(paintWidth, paintHeight),
                   );
                   if (hit != null) widget.onEventTap!(hit);
                 },
@@ -216,24 +234,30 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   final local = box.globalToLocal(details.focalPoint);
                   if (details.scale != 1.0) {
                     // Pinch zoom anchored at focal point
-                    _zoomAnchored(details.scale, local.dx);
+                    final double anchor = vertical ? local.dy : local.dx;
+                    _zoomAnchored(details.scale, anchor);
                   } else {
-                    // Trackpad vertical pan interpreted as zoom gesture
-                    final dx = details.focalPointDelta.dx.abs();
-                    final dy = details.focalPointDelta.dy.abs();
-                    if (dy > dx && details.focalPointDelta.dy != 0) {
-                      final factor = math
-                          .pow(1.0015, -details.focalPointDelta.dy)
-                          .toDouble();
-                      _zoomAnchored(factor, local.dx);
+                    // Trackpad cross-axis pan interpreted as zoom gesture
+                    final double mainDelta = vertical
+                        ? details.focalPointDelta.dy
+                        : details.focalPointDelta.dx;
+                    final double crossDelta = vertical
+                        ? details.focalPointDelta.dx
+                        : details.focalPointDelta.dy;
+                    final double absMain = mainDelta.abs();
+                    final double absCross = crossDelta.abs();
+                    if (absCross > absMain && crossDelta != 0) {
+                      final factor = math.pow(1.0015, -crossDelta).toDouble();
+                      final double anchor = vertical ? local.dy : local.dx;
+                      _zoomAnchored(factor, anchor);
                     } else {
-                      _panOffset += details.focalPointDelta.dx;
+                      _panOffset += mainDelta;
                       setState(() {});
                     }
                   }
                 },
                 child: CustomPaint(
-                  size: Size(cts.maxWidth, widget.height),
+                  size: Size(paintWidth, paintHeight),
                   painter: _Painter(
                     events: widget.events,
                     zoom: _zoom,
@@ -249,6 +273,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                     labelStyleByLOD: widget.labelStyleByLOD,
                     labelStride: widget.labelStride,
                     debug: widget.debugMode,
+                    vertical: vertical,
                   ),
                 ),
               ),
@@ -260,7 +285,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
   }
 
   void _centerOnMidpoint() {
-    if (_lastViewWidth <= 0) return;
+    if (_lastViewExtent <= 0) return;
     double? targetCenterMs;
     if (widget.events.isNotEmpty) {
       DateTime minDate = widget.events.first.date.toUtc();
@@ -280,7 +305,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
 
     final base = widget.basePixelsPerMillisecond;
     final scale = base * _zoom;
-    final leftMs = targetCenterMs - (_lastViewWidth / 2) / scale;
+    final leftMs = targetCenterMs - (_lastViewExtent / 2) / scale;
     setState(() {
       _panOffset = -leftMs * scale;
     });
@@ -290,11 +315,15 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     final base = widget.basePixelsPerMillisecond;
     final scale = base * _zoom;
     final leftMs = -_panOffset / scale;
-    // naive marker hit test: circle radius 8 at axisY
-    final axisY = size.height * 0.5;
+    final bool vertical = widget.orientation == Axis.vertical;
+    // naive marker hit test: circle radius 8 at axis center
+    final axisCenter = vertical ? size.width * 0.5 : size.height * 0.5;
     for (final ev in widget.events) {
-      final x = (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      if ((p - Offset(x, axisY)).distance <= 10) return ev;
+      final mainPos =
+          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+      final Offset marker =
+          vertical ? Offset(axisCenter, mainPos) : Offset(mainPos, axisCenter);
+      if ((p - marker).distance <= 10) return ev;
     }
     return null;
   }
@@ -317,6 +346,7 @@ class _Painter extends CustomPainter {
   final Map<TimeScaleLOD, TextStyle>? labelStyleByLOD;
   final int labelStride;
   final bool debug;
+  final bool vertical;
   _Painter({
     required this.events,
     required this.zoom,
@@ -332,16 +362,29 @@ class _Painter extends CustomPainter {
     required this.labelStyleByLOD,
     required this.labelStride,
     required this.debug,
+    required this.vertical,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final centerY = size.height / 2;
+    final centerCross = vertical ? size.width / 2 : size.height / 2;
     // Draw base axis line
     final axisPaint = Paint()
       ..color = timelineColor
       ..strokeWidth = axisThickness;
-    canvas.drawLine(Offset(0, centerY), Offset(size.width, centerY), axisPaint);
+    if (vertical) {
+      canvas.drawLine(
+        Offset(centerCross, 0),
+        Offset(centerCross, size.height),
+        axisPaint,
+      );
+    } else {
+      canvas.drawLine(
+        Offset(0, centerCross),
+        Offset(size.width, centerCross),
+        axisPaint,
+      );
+    }
 
     // Delegate tick generation and label selection to the tick manager.
     // The manager selects a time unit (LOD) based on current zoom so that
@@ -358,17 +401,29 @@ class _Painter extends CustomPainter {
         minorThickness: minorTickThickness,
       )
       ..setBasePixelsPerMs(basePxPerMs);
-    final ticks = tickManager.generateTicks(zoom, panOffset, size);
+    final ticks = tickManager.generateTicks(
+      zoom,
+      panOffset,
+      size,
+      vertical: vertical,
+    );
     // Grid
-    tickManager.renderGrid(canvas, zoom, panOffset, size);
+    tickManager.renderGrid(
+      canvas,
+      zoom,
+      panOffset,
+      size,
+      vertical: vertical,
+    );
     // Axis ticks + labels (labels are attached to major ticks only)
     tickManager.renderTicks(
       canvas: canvas,
       ticks: ticks,
-      centerY: centerY,
+      centerY: centerCross,
       size: size,
       labelStride: labelStride,
       styleByLOD: labelStyleByLOD,
+      vertical: vertical,
     );
 
     // Debug overlay with diagnostics about LOD selection and label visibility
@@ -406,8 +461,12 @@ class _Painter extends CustomPainter {
     // Draw event markers
     final marker = Paint()..color = eventColor;
     for (final ev in events) {
-      final x = (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      canvas.drawCircle(Offset(x, centerY), 6, marker);
+      final mainPos =
+          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+      final Offset pos = vertical
+          ? Offset(centerCross, mainPos)
+          : Offset(mainPos, centerCross);
+      canvas.drawCircle(pos, 6, marker);
     }
   }
 
@@ -478,12 +537,18 @@ class _PackageTickManager {
   /// - Minor ticks: every unit.minorMs within the viewport with a small height.
   /// - Major ticks: every unit.majorMs; these receive labels using the unit's
   ///   formatter. Labels are centered under the tick and culled if off-screen.
-  List<_PkgTick> generateTicks(double zoom, double pan, Size size) {
+  List<_PkgTick> generateTicks(
+    double zoom,
+    double pan,
+    Size size, {
+    bool vertical = false,
+  }) {
     for (final t in _active) _pool.add(t);
     _active.clear();
     final scale = _basePxPerMs * zoom;
     final leftMs = -pan / scale;
-    final rightMs = leftMs + size.width / scale;
+    final mainExtent = vertical ? size.height : size.width;
+    final rightMs = leftMs + mainExtent / scale;
 
     final unit = _pickUnit(scale);
 
@@ -503,20 +568,28 @@ class _PackageTickManager {
     // Minor ticks at fixed step for the chosen unit
     final firstMinor = ceilTo(leftMs, unit.minorMs);
     for (double t = firstMinor; t <= rightMs; t += unit.minorMs) {
-      final x = (t - leftMs) * scale;
-      if (x < -50 || x > size.width + 50) continue;
-      _active.add(_get().set(t, x, false, '', 8));
+      final pos = (t - leftMs) * scale;
+      if (vertical) {
+        if (pos < -50 || pos > size.height + 50) continue;
+      } else {
+        if (pos < -50 || pos > size.width + 50) continue;
+      }
+      _active.add(_get().set(t, pos, false, '', 8));
       diagnostics!.numMinor++;
     }
     // Major ticks at fixed step for the chosen unit
     final firstMajor = ceilTo(leftMs, unit.majorMs);
     for (double t = firstMajor; t <= rightMs; t += unit.majorMs) {
-      final x = (t - leftMs) * scale;
-      if (x < -100 || x > size.width + 100) continue;
+      final pos = (t - leftMs) * scale;
+      if (vertical) {
+        if (pos < -100 || pos > size.height + 100) continue;
+      } else {
+        if (pos < -100 || pos > size.width + 100) continue;
+      }
       final label = unit.label(
         DateTime.fromMillisecondsSinceEpoch(t.toInt(), isUtc: true),
       );
-      _active.add(_get().set(t, x, true, label, 16));
+      _active.add(_get().set(t, pos, true, label, 16));
       diagnostics!.numMajor++;
     }
     diagnostics!
@@ -525,10 +598,12 @@ class _PackageTickManager {
     return _active;
   }
 
-  void renderGrid(Canvas canvas, double zoom, double pan, Size size) {
+  void renderGrid(Canvas canvas, double zoom, double pan, Size size,
+      {bool vertical = false}) {
     final scale = _basePxPerMs * zoom;
     final leftMs = -pan / scale;
-    final rightMs = leftMs + size.width / scale;
+    final mainExtent = vertical ? size.height : size.width;
+    final rightMs = leftMs + mainExtent / scale;
     final unit = _pickUnit(scale);
     double ceilTo(double v, double step) {
       final m = v % step;
@@ -537,9 +612,15 @@ class _PackageTickManager {
 
     final firstMajor = ceilTo(leftMs, unit.majorMs);
     for (double t = firstMajor; t <= rightMs; t += unit.majorMs) {
-      final x = (t - leftMs) * scale;
-      if (x >= -10 && x <= size.width + 10) {
-        canvas.drawLine(Offset(x, 0), Offset(x, size.height), _grid);
+      final pos = (t - leftMs) * scale;
+      if (!vertical) {
+        if (pos >= -10 && pos <= size.width + 10) {
+          canvas.drawLine(Offset(pos, 0), Offset(pos, size.height), _grid);
+        }
+      } else {
+        if (pos >= -10 && pos <= size.height + 10) {
+          canvas.drawLine(Offset(0, pos), Offset(size.width, pos), _grid);
+        }
       }
     }
   }
@@ -551,15 +632,24 @@ class _PackageTickManager {
     required Size size,
     int labelStride = 1,
     Map<TimeScaleLOD, TextStyle>? styleByLOD,
+    bool vertical = false,
   }) {
     int majorIndex = 0;
     for (final tick in ticks) {
       final p = tick.isMajor ? _major : _minor;
-      canvas.drawLine(
-        Offset(tick.x, centerY - tick.h),
-        Offset(tick.x, centerY + tick.h),
-        p,
-      );
+      if (!vertical) {
+        canvas.drawLine(
+          Offset(tick.x, centerY - tick.h),
+          Offset(tick.x, centerY + tick.h),
+          p,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(centerY - tick.h, tick.x),
+          Offset(centerY + tick.h, tick.x),
+          p,
+        );
+      }
       if (tick.isMajor && tick.label.isNotEmpty) {
         if (labelStride > 1 && (majorIndex++ % labelStride != 0)) {
           diagnostics?.labelsDroppedByStride++;
@@ -581,10 +671,19 @@ class _PackageTickManager {
         }
         final tp = _tp('${tick.label}_${_labelColor.value}_12_5', style);
         tp.layout();
-        final tx = tick.x - tp.width / 2;
-        if (tx <= size.width && tx + tp.width >= 0) {
-          tp.paint(canvas, Offset(tx, centerY + tick.h + 4));
-          diagnostics?.labelsPainted++;
+        if (!vertical) {
+          final tx = tick.x - tp.width / 2;
+          if (tx <= size.width && tx + tp.width >= 0) {
+            tp.paint(canvas, Offset(tx, centerY + tick.h + 4));
+            diagnostics?.labelsPainted++;
+          }
+        } else {
+          final ty = tick.x - tp.height / 2;
+          final double labelX = centerY + tick.h + 4;
+          if (ty <= size.height && ty + tp.height >= 0) {
+            tp.paint(canvas, Offset(labelX, ty));
+            diagnostics?.labelsPainted++;
+          }
         }
       }
     }

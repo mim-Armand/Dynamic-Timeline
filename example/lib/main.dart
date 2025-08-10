@@ -73,6 +73,10 @@ class MyHomePage extends StatelessWidget {
             const Text('Interactive Timeline Demo'),
             const SizedBox(height: 12),
             SizedBox(
+              // height: 300, // or expand as needed
+              // child: TimelineWidget(
+              //   height: 120, // cross-axis thickness used by the painter
+              //   orientation: Axis.vertical,
               height: 140,
               child: TimelineWidget(
                 height: 120,
