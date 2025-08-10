@@ -76,7 +76,7 @@ class MyHomePage extends StatelessWidget {
               height: 140,
               child: TimelineWidget(
                 height: 120,
-                debugMode: true,
+                debugMode: false,
                 events: events,
                 minZoomLOD: TimeScaleLOD.month,
                 maxZoomLOD: TimeScaleLOD.century,
