@@ -353,6 +353,37 @@ class _Painter extends CustomPainter {
       styleByLOD: labelStyleByLOD,
     );
 
+    // Debug overlay with diagnostics about LOD selection and label visibility
+    if (debug) {
+      final diag = tickManager.diagnostics;
+      if (diag != null) {
+        final lines = <String>[
+          'LOD: ${diag.lod.name}',
+          'px/ms: ${diag.pxPerMs.toStringAsFixed(6)}  target: ${diag.targetPx.toStringAsFixed(0)}px',
+          'major: ${diag.majorMs ~/ 1000}s (${diag.majorPx.toStringAsFixed(1)} px)  minor: ${diag.minorMs ~/ 1000}s (${diag.minorPx.toStringAsFixed(1)} px)',
+          'majors in view: ${diag.numMajor}  minors: ${diag.numMinor}',
+          'labels drawn: ${diag.labelsPainted}  skippedByStride: ${diag.labelsDroppedByStride}  stride: $labelStride',
+        ];
+        final text = lines.join('\n');
+        final tp = TextPainter(
+          text: TextSpan(
+            text: text,
+            style: TextStyle(
+              color: Colors.black.withOpacity(0.85),
+              fontSize: 12,
+              height: 1.2,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: size.width - 8);
+        // Background for readability
+        final bg = Paint()..color = Colors.white.withOpacity(0.7);
+        final rect = Rect.fromLTWH(4, 4, tp.width + 8, tp.height + 8);
+        canvas.drawRect(rect, bg);
+        tp.paint(canvas, const Offset(8, 8));
+      }
+    }
+
     // Events
     // Draw event markers
     final marker = Paint()..color = eventColor;
@@ -377,6 +408,7 @@ class _PackageTickManager {
   final List<_PkgTick> _pool = [];
   final List<_PkgTick> _active = [];
   final Map<String, TextPainter> _tpCache = {};
+  _Diagnostics? diagnostics;
   late Paint _major, _minor, _grid;
   bool _init = false;
   double _basePxPerMs = 0.00002;
@@ -442,12 +474,21 @@ class _PackageTickManager {
       return m == 0 ? v : v + (step - m);
     }
 
+    // Initialize diagnostics for this frame
+    diagnostics = _Diagnostics(
+      lod: unit.lod,
+      pxPerMs: scale,
+      targetPx: 90.0,
+      majorMs: unit.majorMs,
+      minorMs: unit.minorMs,
+    );
     // Minor ticks at fixed step for the chosen unit
     final firstMinor = ceilTo(leftMs, unit.minorMs);
     for (double t = firstMinor; t <= rightMs; t += unit.minorMs) {
       final x = (t - leftMs) * scale;
       if (x < -50 || x > size.width + 50) continue;
       _active.add(_get().set(t, x, false, '', 8));
+      diagnostics!.numMinor++;
     }
     // Major ticks at fixed step for the chosen unit
     final firstMajor = ceilTo(leftMs, unit.majorMs);
@@ -458,7 +499,11 @@ class _PackageTickManager {
         DateTime.fromMillisecondsSinceEpoch(t.toInt(), isUtc: true),
       );
       _active.add(_get().set(t, x, true, label, 16));
+      diagnostics!.numMajor++;
     }
+    diagnostics!
+      ..majorPx = unit.majorMs * scale
+      ..minorPx = unit.minorMs * scale;
     return _active;
   }
 
@@ -498,7 +543,10 @@ class _PackageTickManager {
         p,
       );
       if (tick.isMajor && tick.label.isNotEmpty) {
-        if (labelStride > 1 && (majorIndex++ % labelStride != 0)) continue;
+        if (labelStride > 1 && (majorIndex++ % labelStride != 0)) {
+          diagnostics?.labelsDroppedByStride++;
+          continue;
+        }
         TextStyle style = TextStyle(
           color: _labelColor,
           fontSize: 12,
@@ -515,6 +563,7 @@ class _PackageTickManager {
         final tx = tick.x - tp.width / 2;
         if (tx <= size.width && tx + tp.width >= 0) {
           tp.paint(canvas, Offset(tx, centerY + tick.h + 4));
+          diagnostics?.labelsPainted++;
         }
       }
     }
@@ -553,8 +602,12 @@ class _PackageTickManager {
   /// return the coarsest unit so labels still appear when fully zoomed out.
   _PkgUnit _pickUnit(double pxPerMs) {
     const targetPx = 90.0;
-    _PkgUnit mk(double maj, double min, String Function(DateTime) fmt) =>
-        _PkgUnit(maj, min, fmt);
+    _PkgUnit mk(
+      double maj,
+      double min,
+      String Function(DateTime) fmt,
+      TimeScaleLOD lod,
+    ) => _PkgUnit(maj, min, fmt, lod);
     final hour = 3600e3,
         day = 24 * 3600e3,
         week = 7 * day,
@@ -564,24 +617,41 @@ class _PackageTickManager {
         cen = 100 * year,
         mil = 1000 * year;
     final cand = <_PkgUnit>[
-      mk(hour, hour / 6, (d) => '${d.hour.toString().padLeft(2, '0')}:00'),
+      mk(
+        hour,
+        hour / 6,
+        (d) => '${d.hour.toString().padLeft(2, '0')}:00',
+        TimeScaleLOD.hour,
+      ),
       mk(
         day,
         hour,
         (d) =>
             '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+        TimeScaleLOD.day,
       ),
       mk(
         week,
         day,
         (d) =>
             'W${(((DateTime.utc(d.year, d.month, d.day).difference(DateTime.utc(d.year, 1, 1)).inDays) / 7).floor() + 1)}',
+        TimeScaleLOD.week,
       ),
-      mk(month, week, (d) => '${d.year}-${d.month.toString().padLeft(2, '0')}'),
-      mk(year, month, (d) => '${d.year}'),
-      mk(dec, year, (d) => '${(d.year ~/ 10) * 10}s'),
-      mk(cen, dec, (d) => '${(d.year ~/ 100) * 100}s'),
-      mk(mil, cen, (d) => '${(d.year ~/ 1000) * 1000}'),
+      mk(
+        month,
+        week,
+        (d) => '${d.year}-${d.month.toString().padLeft(2, '0')}',
+        TimeScaleLOD.month,
+      ),
+      mk(year, month, (d) => '${d.year}', TimeScaleLOD.year),
+      mk(dec, year, (d) => '${(d.year ~/ 10) * 10}s', TimeScaleLOD.decade),
+      mk(cen, dec, (d) => '${(d.year ~/ 100) * 100}s', TimeScaleLOD.century),
+      mk(
+        mil,
+        cen,
+        (d) => '${(d.year ~/ 1000) * 1000}',
+        TimeScaleLOD.millennium,
+      ),
     ];
     for (final u in cand) {
       if (pxPerMs * u.majorMs >= targetPx) return u;
@@ -607,5 +677,27 @@ class _PkgTick {
 class _PkgUnit {
   final double majorMs, minorMs;
   final String Function(DateTime) label;
-  _PkgUnit(this.majorMs, this.minorMs, this.label);
+  final TimeScaleLOD lod;
+  _PkgUnit(this.majorMs, this.minorMs, this.label, this.lod);
+}
+
+class _Diagnostics {
+  final TimeScaleLOD lod;
+  final double pxPerMs;
+  final double targetPx;
+  final double majorMs;
+  final double minorMs;
+  int numMajor = 0;
+  int numMinor = 0;
+  int labelsPainted = 0;
+  int labelsDroppedByStride = 0;
+  double majorPx = 0;
+  double minorPx = 0;
+  _Diagnostics({
+    required this.lod,
+    required this.pxPerMs,
+    required this.targetPx,
+    required this.majorMs,
+    required this.minorMs,
+  });
 }
