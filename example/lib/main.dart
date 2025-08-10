@@ -87,11 +87,25 @@ class MyHomePage extends StatelessWidget {
                 minorTickColor: Colors.grey.shade500,
                 labelStride: 1,
                 labelStyleByLOD: const {
-                  TimeScaleLOD.year: TextStyle(
+                  TimeScaleLOD.all: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
+                    color: Colors.grey,
                   ),
-                  TimeScaleLOD.decade: TextStyle(fontSize: 12),
+                  // TimeScaleLOD.decade: TextStyle(
+                  //   fontSize: 12,
+                  //   color: Color.fromARGB(255, 255, 123, 0),
+                  // ),
+                  // TimeScaleLOD.century: TextStyle(
+                  //   color: Color.fromARGB(255, 255, 0, 0),
+                  //   fontSize: 16,
+                  //   fontWeight: FontWeight.w700,
+                  // ),
+                  // TimeScaleLOD.millennium: TextStyle(
+                  //   color: Colors.black,
+                  //   fontSize: 18,
+                  //   fontWeight: FontWeight.w700,
+                  // ),
                 },
                 onZoomChanged: (z) => debugPrint('zoom: $z'),
                 onEventTap: (e) => ScaffoldMessenger.of(context).showSnackBar(

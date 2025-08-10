@@ -7,7 +7,20 @@ import 'package:flutter/material.dart';
 
 typedef TimelineEventTap = void Function(TimelineEvent event);
 
-enum TimeScaleLOD { hour, day, week, month, year, decade, century, millennium }
+// LOD values used for tick generation/label styling. `all` is a special key
+// that can be used in `labelStyleByLOD` to apply a style to every LOD, and a
+// more granular LOD (e.g. `year`) can still override it.
+enum TimeScaleLOD {
+  all,
+  hour,
+  day,
+  week,
+  month,
+  year,
+  decade,
+  century,
+  millennium,
+}
 
 class TimelineEvent {
   final DateTime date;
@@ -100,6 +113,11 @@ class _TimelineWidgetState extends State<TimelineWidget> {
       const targetPx = 90.0;
       double majorMs(TimeScaleLOD lod) {
         switch (lod) {
+          case TimeScaleLOD.all:
+            // Treat the global style key as the finest unit for zoom extent
+            // calculations. Users should pass concrete LODs (hour..millennium)
+            // for minZoomLOD/maxZoomLOD; this just makes the switch exhaustive.
+            return 3600e3;
           case TimeScaleLOD.hour:
             return 3600e3;
           case TimeScaleLOD.day:
@@ -552,11 +570,14 @@ class _PackageTickManager {
           fontSize: 12,
           fontWeight: FontWeight.w500,
         );
-        // Apply per-LOD style if provided
+        // Apply per-LOD style if provided. `all` acts as a base style that
+        // more specific LOD keys (e.g., `year`) can override.
         if (styleByLOD != null) {
           final lod = _inferLODFromLabel(tick.label);
-          final override = styleByLOD[lod];
-          if (override != null) style = override;
+          final baseForAll = styleByLOD[TimeScaleLOD.all];
+          if (baseForAll != null) style = style.merge(baseForAll);
+          final specific = styleByLOD[lod];
+          if (specific != null) style = style.merge(specific);
         }
         final tp = _tp('${tick.label}_${_labelColor.value}_12_5', style);
         tp.layout();
