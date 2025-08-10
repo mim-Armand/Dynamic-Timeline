@@ -272,7 +272,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
       }
       targetCenterMs =
           (minDate.millisecondsSinceEpoch + maxDate.millisecondsSinceEpoch) /
-          2.0;
+              2.0;
     } else if (_initialCenterMs != null) {
       targetCenterMs = _initialCenterMs;
     }
@@ -628,7 +628,8 @@ class _PackageTickManager {
       double min,
       String Function(DateTime) fmt,
       TimeScaleLOD lod,
-    ) => _PkgUnit(maj, min, fmt, lod);
+    ) =>
+        _PkgUnit(maj, min, fmt, lod);
     final hour = 3600e3,
         day = 24 * 3600e3,
         week = 7 * day,
