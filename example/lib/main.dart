@@ -127,6 +127,7 @@ class MyHomePage extends StatelessWidget {
                   // Event markers as widgets with offset and scale
                   eventMarkerOffset: const Offset(0, -12),
                   eventMarkerScale: 1.0,
+                  showDefaultEventMarker: true,
                   eventMarkerBuilder: (ctx, event, info) {
                     return Container(
                       padding: const EdgeInsets.symmetric(

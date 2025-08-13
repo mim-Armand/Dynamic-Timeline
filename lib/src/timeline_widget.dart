@@ -151,6 +151,9 @@ class TimelineWidget extends StatefulWidget {
   final TickShapePainter? tickPainter;
   final Offset tickOffset;
   final double tickScale;
+  // Show default round event markers when no custom painter is provided.
+  // Set to false to hide original markers (useful when supplying widgets).
+  final bool showDefaultEventMarker;
 
   const TimelineWidget({
     super.key,
@@ -187,6 +190,7 @@ class TimelineWidget extends StatefulWidget {
     this.tickPainter,
     this.tickOffset = Offset.zero,
     this.tickScale = 1.0,
+    this.showDefaultEventMarker = true,
   });
 
   @override
@@ -385,6 +389,8 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                             eventMarkerScale: widget.eventMarkerScale,
                             tickOffset: widget.tickOffset,
                             tickScale: widget.tickScale,
+                            showDefaultEventMarker:
+                                widget.showDefaultEventMarker,
                             debug: widget.debugMode,
                             vertical: vertical,
                           ),
@@ -476,7 +482,11 @@ class _TimelineWidgetState extends State<TimelineWidget> {
         canvasSize: size,
         markerScale: (ev.markerScale ?? widget.eventMarkerScale),
       );
-      final w = widget.eventMarkerBuilder!(context, ev, info);
+      final w = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => widget.onEventTap?.call(ev),
+        child: widget.eventMarkerBuilder!(context, ev, info),
+      );
       final child = Transform.translate(
         offset: Offset(basePos.dx, basePos.dy),
         child: Transform.scale(
@@ -521,6 +531,7 @@ class _Painter extends CustomPainter {
   final double eventMarkerScale;
   final Offset tickOffset;
   final double tickScale;
+  final bool showDefaultEventMarker;
   final bool debug;
   final bool vertical;
   _Painter({
@@ -545,6 +556,7 @@ class _Painter extends CustomPainter {
     required this.eventMarkerScale,
     required this.tickOffset,
     required this.tickScale,
+    required this.showDefaultEventMarker,
     required this.debug,
     required this.vertical,
   });
@@ -669,7 +681,7 @@ class _Painter extends CustomPainter {
         );
         eventMarkerPainter!(canvas, ev, info);
       }
-    } else {
+    } else if (showDefaultEventMarker) {
       // Default simple circles
       final marker = Paint()..color = eventColor;
       for (final ev in events) {
