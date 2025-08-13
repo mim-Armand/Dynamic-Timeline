@@ -253,6 +253,6 @@ pub.dev does not allow re-uploading the same version. For any fix, bump the vers
 
 ### GitHub Pages website
 
-- A minimal site is available under `docs/` and can be enabled via GitHub Pages (branch: `main`, folder: `/docs`).
+- A minimal site is available under `doc/` and can be enabled via GitHub Pages (branch: `main`, folder: `/doc`).
 - After it’s live, consider setting `homepage:` in `pubspec.yaml` to the Pages URL.
-- If you prefer, move `demo1.png` into `docs/` (e.g., `docs/assets/`) and update links accordingly. Keeping it at the repo root also works for pub.dev README rendering.
+- If you prefer, move `demo1.png` into `doc/` (e.g., `doc/assets/`) and update links accordingly. Keeping it at the repo root also works for pub.dev README rendering.
