@@ -6,7 +6,7 @@ A performant, reusable horizontal timeline widget for Flutter with:
 - Smooth horizontal panning
 - Auto-LOD ticks (hours → months → years → decades → centuries → millennia)
 - Double-tap to center on events midpoint (or initial center)
-- Event markers with tap callback
+- Event markers with tap callback and customizable widget/shape
 - Parent scroll suppression (prevents ancestor scrollables from hijacking gestures)
 
 [![pub package](https://img.shields.io/pub/v/interactive_timeline.svg)](https://pub.dev/packages/interactive_timeline)
@@ -81,9 +81,84 @@ SizedBox(
 - Data: `events` (`TimelineEvent`)
 - Size: `height`
 - Zoom/scale: `initialZoom`, `minZoom`, `maxZoom`, `minZoomLOD`, `maxZoomLOD`, `basePixelsPerMillisecond`
-- Styling: `timelineColor`, `eventColor`, `backgroundColor`, `tickLabelColor`, `axisThickness`, `majorTickThickness`, `minorTickThickness`, `minorTickColor`, `labelStride`, `labelStyleByLOD`
+- Styling: `timelineColor`, `eventColor`, `backgroundColor`, `tickLabelColor`, `axisThickness`, `majorTickThickness`, `minorTickThickness`, `minorTickColor`, `labelStride`, `labelStyleByLOD`, `tickLabelStyle`, `tickLabelFontFamily`
 - Callbacks: `onZoomChanged(double)`, `onEventTap(TimelineEvent)`
 - Behavior: anchored zoom, double-tap to center, suppress ancestor pointer events
+
+#### Event markers
+
+- Per-event overrides on `TimelineEvent`: `markerOffset`, `markerScale`.
+- Defaults on `TimelineWidget`: `eventMarkerOffset`, `eventMarkerScale`.
+- Custom marker as widget:
+
+```dart
+TimelineWidget(
+  events: events,
+  showDefaultEventMarker: false,
+  eventMarkerOffset: const Offset(0, -12),
+  eventMarkerScale: 1.0,
+  eventMarkerBuilder: (context, event, info) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.red,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        child: Text(event.title, style: const TextStyle(color: Colors.white, fontSize: 10)),
+      ),
+    );
+  },
+  onEventTap: (e) => debugPrint('Tap ${e.title}'),
+)
+```
+
+- Custom marker as shape (canvas painter):
+
+```dart
+TimelineWidget(
+  events: events,
+  eventMarkerPainter: (canvas, event, info) {
+    final p = Paint()..color = Colors.purple;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: info.position, width: 12 * info.markerScale, height: 12 * info.markerScale),
+        const Radius.circular(3),
+      ),
+      p,
+    );
+  },
+)
+```
+
+#### Ticks
+
+- Custom tick painter and transforms:
+
+```dart
+TimelineWidget(
+  tickOffset: const Offset(0, 0),
+  tickScale: 1.0,
+  tickPainter: (canvas, tick, ctx) {
+    final paint = Paint()
+      ..color = tick.isMajor ? ctx.axisColor : ctx.minorColor
+      ..strokeWidth = tick.isMajor ? 2 : 1;
+    if (!tick.vertical) {
+      final h = tick.height * ctx.tickScale;
+      final x = tick.positionMainAxis + ctx.tickOffset.dx;
+      final y = tick.centerCrossAxis + ctx.tickOffset.dy;
+      canvas.drawLine(Offset(x, y - h), Offset(x, y + h), paint);
+    } else {
+      final h = tick.height * ctx.tickScale;
+      final x = tick.centerCrossAxis + ctx.tickOffset.dx;
+      final y = tick.positionMainAxis + ctx.tickOffset.dy;
+      canvas.drawLine(Offset(x - h, y), Offset(x + h, y), paint);
+    }
+  },
+  tickLabelStyle: const TextStyle(fontSize: 11),
+  tickLabelFontFamily: 'monospace',
+)
+```
 
 ### Example app (in this repo)
 

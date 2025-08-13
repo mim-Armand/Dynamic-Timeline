@@ -11,7 +11,7 @@ A performant, reusable horizontal timeline widget with:
 - Smooth horizontal panning
 - Auto-LOD ticks (hours → months → years → decades → centuries → millennia)
 - Double-tap to center on events midpoint
-- Event markers with tap callback
+- Event markers with tap callback and customizable widget/shape
 
 ![Interactive timeline demo](assets/demo1.png)
 
@@ -47,6 +47,9 @@ SizedBox(
     height: 120,
     events: events,
     tickLabelColor: const Color(0xFF444444),
+    // Customize fonts
+    tickLabelStyle: const TextStyle(fontSize: 11),
+    tickLabelFontFamily: 'monospace',
   ),
 )
 ```
@@ -55,6 +58,8 @@ SizedBox(
 
 - Pooled tick manager for performance
 - Per-LOD label styles and global `TimeScaleLOD.all`
+- Customizable event markers: widget or canvas painter with `markerOffset`/`markerScale`
+- Customizable ticks: painter callback with `tickOffset`/`tickScale`
 - Simple API surface; bring your own theming
 
 ## Links
