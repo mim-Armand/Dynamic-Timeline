@@ -75,7 +75,7 @@ class MyHomePage extends StatelessWidget {
               const SizedBox(height: 12),
               // Horizontal timeline (default)
               SizedBox(
-                height: 140,
+                height: 160,
                 child: TimelineWidget(
                   height: 120,
                   debugMode: false,
@@ -88,12 +88,82 @@ class MyHomePage extends StatelessWidget {
                   minorTickThickness: 1,
                   minorTickColor: Colors.grey.shade500,
                   labelStride: 1,
+                  tickLabelStyle: const TextStyle(fontSize: 11),
+                  tickLabelFontFamily: 'monospace',
                   labelStyleByLOD: const {
                     TimeScaleLOD.all: TextStyle(
-                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey,
                     ),
+                    TimeScaleLOD.year: TextStyle(fontSize: 14),
+                  },
+                  // Custom tick appearance via painter and offset/scale
+                  tickOffset: const Offset(0, 0),
+                  tickScale: 1.0,
+                  tickPainter: (canvas, tick, ctx) {
+                    final paint = Paint()
+                      ..color = tick.isMajor ? ctx.axisColor : ctx.minorColor
+                      ..strokeWidth = tick.isMajor ? 2 : 1;
+                    if (!tick.vertical) {
+                      final h = tick.height * ctx.tickScale;
+                      final x = tick.positionMainAxis + ctx.tickOffset.dx;
+                      final y = tick.centerCrossAxis + ctx.tickOffset.dy;
+                      canvas.drawLine(
+                        Offset(x, y - h),
+                        Offset(x, y + h),
+                        paint,
+                      );
+                    } else {
+                      final h = tick.height * ctx.tickScale;
+                      final x = tick.centerCrossAxis + ctx.tickOffset.dx;
+                      final y = tick.positionMainAxis + ctx.tickOffset.dy;
+                      canvas.drawLine(
+                        Offset(x - h, y),
+                        Offset(x + h, y),
+                        paint,
+                      );
+                    }
+                  },
+                  // Event markers as widgets with offset and scale
+                  eventMarkerOffset: const Offset(0, -12),
+                  eventMarkerScale: 1.0,
+                  eventMarkerBuilder: (ctx, event, info) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade400,
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.place,
+                            size: 12,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            event.title,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
                   },
                   onZoomChanged: (z) => debugPrint('zoom: $z'),
                   onEventTap: (e) => ScaffoldMessenger.of(context).showSnackBar(

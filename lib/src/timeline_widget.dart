@@ -6,6 +6,75 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 typedef TimelineEventTap = void Function(TimelineEvent event);
+typedef EventMarkerWidgetBuilder = Widget Function(
+  BuildContext context,
+  TimelineEvent event,
+  EventMarkerInfo info,
+);
+typedef EventMarkerShapePainter = void Function(
+  Canvas canvas,
+  TimelineEvent event,
+  EventMarkerInfo info,
+);
+typedef TickShapePainter = void Function(
+  Canvas canvas,
+  TickInfo tick,
+  TickDrawContext ctx,
+);
+
+/// Positional data for event markers supplied to the builder/painter.
+class EventMarkerInfo {
+  final Offset position;
+  final double zoom;
+  final double pxPerMs;
+  final double axisCenterCross;
+  final bool vertical;
+  final Size canvasSize;
+  final double markerScale;
+  const EventMarkerInfo({
+    required this.position,
+    required this.zoom,
+    required this.pxPerMs,
+    required this.axisCenterCross,
+    required this.vertical,
+    required this.canvasSize,
+    required this.markerScale,
+  });
+}
+
+/// Information about an individual tick passed to the custom tick painter.
+class TickInfo {
+  final double positionMainAxis;
+  final double centerCrossAxis;
+  final double height;
+  final bool isMajor;
+  final String label;
+  final bool vertical;
+  const TickInfo({
+    required this.positionMainAxis,
+    required this.centerCrossAxis,
+    required this.height,
+    required this.isMajor,
+    required this.label,
+    required this.vertical,
+  });
+}
+
+/// Context/config provided to the custom tick painter for convenience.
+class TickDrawContext {
+  final Size size;
+  final Color axisColor;
+  final Color minorColor;
+  final Offset tickOffset;
+  final double tickScale;
+  const TickDrawContext({
+    required this.size,
+    required this.axisColor,
+    required this.minorColor,
+    required this.tickOffset,
+    required this.tickScale,
+  });
+}
 
 // LOD values used for tick generation/label styling. `all` is a special key
 // that can be used in `labelStyleByLOD` to apply a style to every LOD, and a
@@ -26,10 +95,15 @@ class TimelineEvent {
   final DateTime date;
   final String title;
   final String? description;
+  // Optional per-event marker positioning/scaling overrides
+  final Offset? markerOffset;
+  final double? markerScale;
   const TimelineEvent({
     required this.date,
     required this.title,
     this.description,
+    this.markerOffset,
+    this.markerScale,
   });
 }
 
@@ -58,11 +132,25 @@ class TimelineWidget extends StatefulWidget {
   final Color? minorTickColor;
   // Optional per-LOD label styles
   final Map<TimeScaleLOD, TextStyle>? labelStyleByLOD;
+  // Optional base style for all tick labels (merged before styleByLOD)
+  final TextStyle? tickLabelStyle;
+  // Optional explicit font family override for tick labels (applied last)
+  final String? tickLabelFontFamily;
   // Render every Nth major label (1 = all)
   final int labelStride;
   final Function(double)? onZoomChanged;
   final TimelineEventTap? onEventTap;
   final bool debugMode;
+  // Event marker customization
+  final EventMarkerWidgetBuilder? eventMarkerBuilder;
+  final EventMarkerShapePainter? eventMarkerPainter;
+  // Default positioning for event markers when not provided per-event
+  final Offset eventMarkerOffset;
+  final double eventMarkerScale;
+  // Tick customization
+  final TickShapePainter? tickPainter;
+  final Offset tickOffset;
+  final double tickScale;
 
   const TimelineWidget({
     super.key,
@@ -86,10 +174,19 @@ class TimelineWidget extends StatefulWidget {
     this.minorTickThickness = 1.0,
     this.minorTickColor,
     this.labelStyleByLOD,
+    this.tickLabelStyle,
+    this.tickLabelFontFamily,
     this.labelStride = 1,
     this.onZoomChanged,
     this.onEventTap,
     this.debugMode = false,
+    this.eventMarkerBuilder,
+    this.eventMarkerPainter,
+    this.eventMarkerOffset = Offset.zero,
+    this.eventMarkerScale = 1.0,
+    this.tickPainter,
+    this.tickOffset = Offset.zero,
+    this.tickScale = 1.0,
   });
 
   @override
@@ -260,25 +357,44 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   width: paintWidth,
                   height: paintHeight,
                   child: ClipRect(
-                    child: CustomPaint(
-                      size: Size(paintWidth, paintHeight),
-                      painter: _Painter(
-                        events: widget.events,
-                        zoom: _zoom,
-                        panOffset: _panOffset,
-                        timelineColor: widget.timelineColor,
-                        eventColor: widget.eventColor,
-                        basePxPerMs: widget.basePixelsPerMillisecond,
-                        tickLabelColor: widget.tickLabelColor,
-                        axisThickness: widget.axisThickness,
-                        majorTickThickness: widget.majorTickThickness,
-                        minorTickThickness: widget.minorTickThickness,
-                        minorTickColor: widget.minorTickColor,
-                        labelStyleByLOD: widget.labelStyleByLOD,
-                        labelStride: widget.labelStride,
-                        debug: widget.debugMode,
-                        vertical: vertical,
-                      ),
+                    child: Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        // Axis, grid, ticks, and optionally event shapes
+                        CustomPaint(
+                          size: Size(paintWidth, paintHeight),
+                          painter: _Painter(
+                            events: widget.events,
+                            zoom: _zoom,
+                            panOffset: _panOffset,
+                            timelineColor: widget.timelineColor,
+                            eventColor: widget.eventColor,
+                            basePxPerMs: widget.basePixelsPerMillisecond,
+                            tickLabelColor: widget.tickLabelColor,
+                            axisThickness: widget.axisThickness,
+                            majorTickThickness: widget.majorTickThickness,
+                            minorTickThickness: widget.minorTickThickness,
+                            minorTickColor: widget.minorTickColor,
+                            labelStyleByLOD: widget.labelStyleByLOD,
+                            tickLabelStyle: widget.tickLabelStyle,
+                            tickLabelFontFamily: widget.tickLabelFontFamily,
+                            labelStride: widget.labelStride,
+                            tickPainter: widget.tickPainter,
+                            eventMarkerPainter: widget.eventMarkerPainter,
+                            eventMarkerOffset: widget.eventMarkerOffset,
+                            eventMarkerScale: widget.eventMarkerScale,
+                            tickOffset: widget.tickOffset,
+                            tickScale: widget.tickScale,
+                            debug: widget.debugMode,
+                            vertical: vertical,
+                          ),
+                        ),
+                        if (widget.eventMarkerBuilder != null)
+                          ..._buildEventMarkerWidgets(
+                            Size(paintWidth, paintHeight),
+                            vertical,
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -327,11 +443,57 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     for (final ev in widget.events) {
       final mainPos =
           (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      final Offset marker =
+      Offset pos =
           vertical ? Offset(axisCenter, mainPos) : Offset(mainPos, axisCenter);
-      if ((p - marker).distance <= 10) return ev;
+      final Offset userOffset = (ev.markerOffset ?? widget.eventMarkerOffset);
+      pos = pos + userOffset;
+      final double hitRadius = 10 * (ev.markerScale ?? widget.eventMarkerScale);
+      if ((p - pos).distance <= hitRadius) return ev;
     }
     return null;
+  }
+
+  List<Widget> _buildEventMarkerWidgets(Size size, bool vertical) {
+    final List<Widget> children = [];
+    if (widget.eventMarkerBuilder == null) return children;
+    final base = widget.basePixelsPerMillisecond;
+    final scale = base * _zoom;
+    final leftMs = -_panOffset / scale;
+    final double centerCross = vertical ? size.width / 2 : size.height / 2;
+    for (final ev in widget.events) {
+      final mainPos =
+          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+      Offset basePos = vertical
+          ? Offset(centerCross, mainPos)
+          : Offset(mainPos, centerCross);
+      basePos = basePos + (ev.markerOffset ?? widget.eventMarkerOffset);
+      final info = EventMarkerInfo(
+        position: basePos,
+        zoom: _zoom,
+        pxPerMs: scale,
+        axisCenterCross: centerCross,
+        vertical: vertical,
+        canvasSize: size,
+        markerScale: (ev.markerScale ?? widget.eventMarkerScale),
+      );
+      final w = widget.eventMarkerBuilder!(context, ev, info);
+      final child = Transform.translate(
+        offset: Offset(basePos.dx, basePos.dy),
+        child: Transform.scale(
+          scale: info.markerScale,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: w,
+          ),
+        ),
+      );
+      children.add(Positioned(
+        left: 0,
+        top: 0,
+        child: child,
+      ));
+    }
+    return children;
   }
 }
 
@@ -350,7 +512,15 @@ class _Painter extends CustomPainter {
   final double minorTickThickness;
   final Color? minorTickColor;
   final Map<TimeScaleLOD, TextStyle>? labelStyleByLOD;
+  final TextStyle? tickLabelStyle;
+  final String? tickLabelFontFamily;
   final int labelStride;
+  final TickShapePainter? tickPainter;
+  final EventMarkerShapePainter? eventMarkerPainter;
+  final Offset eventMarkerOffset;
+  final double eventMarkerScale;
+  final Offset tickOffset;
+  final double tickScale;
   final bool debug;
   final bool vertical;
   _Painter({
@@ -366,7 +536,15 @@ class _Painter extends CustomPainter {
     required this.minorTickThickness,
     required this.minorTickColor,
     required this.labelStyleByLOD,
+    required this.tickLabelStyle,
+    required this.tickLabelFontFamily,
     required this.labelStride,
+    required this.tickPainter,
+    required this.eventMarkerPainter,
+    required this.eventMarkerOffset,
+    required this.eventMarkerScale,
+    required this.tickOffset,
+    required this.tickScale,
     required this.debug,
     required this.vertical,
   });
@@ -429,7 +607,12 @@ class _Painter extends CustomPainter {
       size: size,
       labelStride: labelStride,
       styleByLOD: labelStyleByLOD,
+      baseLabelStyle: tickLabelStyle,
+      fontFamilyOverride: tickLabelFontFamily,
       vertical: vertical,
+      customPainter: tickPainter,
+      tickOffset: tickOffset,
+      tickScale: tickScale,
     );
 
     // Debug overlay with diagnostics about LOD selection and label visibility
@@ -464,15 +647,41 @@ class _Painter extends CustomPainter {
     }
 
     // Events
-    // Draw event markers
-    final marker = Paint()..color = eventColor;
-    for (final ev in events) {
-      final mainPos =
-          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      final Offset pos = vertical
-          ? Offset(centerCross, mainPos)
-          : Offset(mainPos, centerCross);
-      canvas.drawCircle(pos, 6, marker);
+    // Draw event markers if using shape painter. If a widget builder is
+    // provided, the widgets are drawn in the overlaying Stack.
+    if (eventMarkerPainter != null) {
+      for (final ev in events) {
+        final mainPos =
+            (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+        Offset basePos = vertical
+            ? Offset(centerCross, mainPos)
+            : Offset(mainPos, centerCross);
+        final Offset userOffset = (ev.markerOffset ?? eventMarkerOffset);
+        basePos = basePos + userOffset;
+        final info = EventMarkerInfo(
+          position: basePos,
+          zoom: zoom,
+          pxPerMs: scale,
+          axisCenterCross: centerCross,
+          vertical: vertical,
+          canvasSize: size,
+          markerScale: (ev.markerScale ?? eventMarkerScale),
+        );
+        eventMarkerPainter!(canvas, ev, info);
+      }
+    } else {
+      // Default simple circles
+      final marker = Paint()..color = eventColor;
+      for (final ev in events) {
+        final mainPos =
+            (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+        Offset pos = vertical
+            ? Offset(centerCross, mainPos)
+            : Offset(mainPos, centerCross);
+        pos = pos + (ev.markerOffset ?? eventMarkerOffset);
+        final double r = 6 * (ev.markerScale ?? eventMarkerScale);
+        canvas.drawCircle(pos, r, marker);
+      }
     }
   }
 
@@ -480,7 +689,11 @@ class _Painter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _Painter old) =>
-      old.events != events || old.zoom != zoom || old.panOffset != panOffset;
+      old.events != events ||
+      old.zoom != zoom ||
+      old.panOffset != panOffset ||
+      old.tickPainter != tickPainter ||
+      old.eventMarkerPainter != eventMarkerPainter;
 }
 
 // Minimal, namespaced copy of the performant tick manager for the package
@@ -638,34 +851,64 @@ class _PackageTickManager {
     required Size size,
     int labelStride = 1,
     Map<TimeScaleLOD, TextStyle>? styleByLOD,
+    TextStyle? baseLabelStyle,
+    String? fontFamilyOverride,
     bool vertical = false,
+    TickShapePainter? customPainter,
+    Offset tickOffset = Offset.zero,
+    double tickScale = 1.0,
   }) {
     int majorIndex = 0;
     for (final tick in ticks) {
-      final p = tick.isMajor ? _major : _minor;
-      if (!vertical) {
-        canvas.drawLine(
-          Offset(tick.x, centerY - tick.h),
-          Offset(tick.x, centerY + tick.h),
-          p,
+      if (customPainter != null) {
+        final info = TickInfo(
+          positionMainAxis: tick.x,
+          centerCrossAxis: centerY,
+          height: tick.h,
+          isMajor: tick.isMajor,
+          label: tick.label,
+          vertical: vertical,
         );
+        final ctx = TickDrawContext(
+          size: size,
+          axisColor: _major.color,
+          minorColor: _minor.color,
+          tickOffset: tickOffset,
+          tickScale: tickScale,
+        );
+        customPainter(canvas, info, ctx);
       } else {
-        canvas.drawLine(
-          Offset(centerY - tick.h, tick.x),
-          Offset(centerY + tick.h, tick.x),
-          p,
-        );
+        final p = tick.isMajor ? _major : _minor;
+        final double scaledH = tick.h * tickScale;
+        if (!vertical) {
+          canvas.drawLine(
+            Offset(tick.x + tickOffset.dx, centerY - scaledH + tickOffset.dy),
+            Offset(tick.x + tickOffset.dx, centerY + scaledH + tickOffset.dy),
+            p,
+          );
+        } else {
+          canvas.drawLine(
+            Offset(centerY - scaledH + tickOffset.dx, tick.x + tickOffset.dy),
+            Offset(centerY + scaledH + tickOffset.dx, tick.x + tickOffset.dy),
+            p,
+          );
+        }
       }
       if (tick.isMajor && tick.label.isNotEmpty) {
         if (labelStride > 1 && (majorIndex++ % labelStride != 0)) {
           diagnostics?.labelsDroppedByStride++;
           continue;
         }
-        TextStyle style = TextStyle(
-          color: _labelColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        );
+        TextStyle style = baseLabelStyle ??
+            TextStyle(
+              color: _labelColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            );
+        // Ensure color is set from runtime label color if not explicitly set
+        if (style.color == null) {
+          style = style.merge(TextStyle(color: _labelColor));
+        }
         // Apply per-LOD style if provided. `all` acts as a base style that
         // more specific LOD keys (e.g., `year`) can override.
         if (styleByLOD != null) {
@@ -675,17 +918,22 @@ class _PackageTickManager {
           final specific = styleByLOD[lod];
           if (specific != null) style = style.merge(specific);
         }
+        if (fontFamilyOverride != null && fontFamilyOverride.isNotEmpty) {
+          style = style.merge(TextStyle(fontFamily: fontFamilyOverride));
+        }
         final tp = _tp('${tick.label}_${_labelColor.value}_12_5', style);
         tp.layout();
         if (!vertical) {
-          final tx = tick.x - tp.width / 2;
+          final tx = tick.x + tickOffset.dx - tp.width / 2;
           if (tx <= size.width && tx + tp.width >= 0) {
-            tp.paint(canvas, Offset(tx, centerY + tick.h + 4));
+            tp.paint(canvas,
+                Offset(tx, centerY + (tick.h * tickScale) + 4 + tickOffset.dy));
             diagnostics?.labelsPainted++;
           }
         } else {
-          final ty = tick.x - tp.height / 2;
-          final double labelX = centerY + tick.h + 4;
+          final ty = tick.x + tickOffset.dy - tp.height / 2;
+          final double labelX =
+              centerY + (tick.h * tickScale) + 4 + tickOffset.dx;
           if (ty <= size.height && ty + tp.height >= 0) {
             tp.paint(canvas, Offset(labelX, ty));
             diagnostics?.labelsPainted++;
