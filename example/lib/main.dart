@@ -82,6 +82,12 @@ class MyHomePage extends StatelessWidget {
                   events: events,
                   minZoomLOD: TimeScaleLOD.month,
                   maxZoomLOD: TimeScaleLOD.century,
+                  enableFisheye: true,
+                  fisheyeIntensity: 1.8,
+                  fisheyeRadiusPx: 140,
+                  fisheyeHardness: 2.7,
+                  fisheyeScaleTicks: true,
+                  fisheyeScaleMarkers: false,
                   tickLabelColor: const Color(0xFF444444),
                   axisThickness: 2,
                   majorTickThickness: 2,
@@ -192,6 +198,12 @@ class MyHomePage extends StatelessWidget {
                       events: events,
                       minZoomLOD: TimeScaleLOD.month,
                       maxZoomLOD: TimeScaleLOD.century,
+                      enableFisheye: true,
+                      fisheyeIntensity: 1.8,
+                      fisheyeRadiusPx: 140,
+                      fisheyeHardness: 2.0,
+                      fisheyeScaleTicks: true,
+                      fisheyeScaleMarkers: true,
                       tickLabelColor: const Color(0xFF444444),
                       axisThickness: 2,
                       majorTickThickness: 2,
@@ -208,12 +220,12 @@ class MyHomePage extends StatelessWidget {
                       onZoomChanged: (z) => debugPrint('zoom: $z'),
                       onEventTap: (e) =>
                           ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
+                            SnackBar(
+                              content: Text(
+                                'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 16),

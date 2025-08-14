@@ -8,6 +8,7 @@ A performant, reusable horizontal timeline widget for Flutter with:
 - Double-tap to center on events midpoint (or initial center)
 - Event markers with tap callback and customizable widget/shape
 - Parent scroll suppression (prevents ancestor scrollables from hijacking gestures)
+- Optional fisheye lens magnification under the cursor (macOS dock style)
 
 [![pub package](https://img.shields.io/pub/v/interactive_timeline.svg)](https://pub.dev/packages/interactive_timeline)
 Published on [pub.dev](https://pub.dev/packages/interactive_timeline).
@@ -84,6 +85,30 @@ SizedBox(
 - Styling: `timelineColor`, `eventColor`, `backgroundColor`, `tickLabelColor`, `axisThickness`, `majorTickThickness`, `minorTickThickness`, `minorTickColor`, `labelStride`, `labelStyleByLOD`, `tickLabelStyle`, `tickLabelFontFamily`
 - Callbacks: `onZoomChanged(double)`, `onEventTap(TimelineEvent)`
 - Behavior: anchored zoom, double-tap to center, suppress ancestor pointer events
+
+#### Fisheye lens (optional)
+
+Enable a dock-like magnification around the pointer along the main axis. Events, tick positions, and optionally tick heights and label font sizes grow smoothly near the cursor.
+
+```dart
+TimelineWidget(
+  enableFisheye: true,
+  // Max scale at the cursor (>= 1.0)
+  fisheyeIntensity: 1.8,
+  // Pixel radius along the main axis affected by the lens
+  fisheyeRadiusPx: 140,
+  // Falloff sharpness (>= 1.0). Higher = sharper edge
+  fisheyeHardness: 2.0,
+  // What to scale
+  fisheyeScaleTicks: true,    // tick height grows near cursor
+  fisheyeScaleMarkers: true,  // event markers grow near cursor
+  fisheyeScaleLabels: true,   // tick label font size grows near cursor
+)
+```
+
+Notes:
+- Works in both orientations. The lens follows the pointer along the main axis.
+- Hit testing respects marker scaling. Labels/ticks are re-positioned under the warp; tick labels can also scale in size if enabled.
 
 #### Event markers
 

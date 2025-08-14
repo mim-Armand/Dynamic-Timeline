@@ -154,6 +154,19 @@ class TimelineWidget extends StatefulWidget {
   // Show default round event markers when no custom painter is provided.
   // Set to false to hide original markers (useful when supplying widgets).
   final bool showDefaultEventMarker;
+  // Fisheye lens configuration
+  final bool enableFisheye;
+  // Max stretch/scale factor at the cursor (>= 1.0)
+  final double fisheyeIntensity;
+  // Pixel radius of the lens influence along the main axis
+  final double fisheyeRadiusPx;
+  // Controls falloff sharpness (>= 1.0). Higher = sharper falloff
+  final double fisheyeHardness;
+  // Whether to scale tick height by lens and event marker size respectively
+  final bool fisheyeScaleTicks;
+  final bool fisheyeScaleMarkers;
+  // Whether to scale tick label font size by lens
+  final bool fisheyeScaleLabels;
 
   const TimelineWidget({
     super.key,
@@ -191,6 +204,13 @@ class TimelineWidget extends StatefulWidget {
     this.tickOffset = Offset.zero,
     this.tickScale = 1.0,
     this.showDefaultEventMarker = true,
+    this.enableFisheye = false,
+    this.fisheyeIntensity = 1.8,
+    this.fisheyeRadiusPx = 120.0,
+    this.fisheyeHardness = 2.0,
+    this.fisheyeScaleTicks = true,
+    this.fisheyeScaleMarkers = true,
+    this.fisheyeScaleLabels = true,
   });
 
   @override
@@ -203,6 +223,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
   double _lastViewExtent = 0; // length along the main axis
   double _effectiveMinZoom = 0.5, _effectiveMaxZoom = 3.0;
   double? _initialCenterMs;
+  double? _lensCenterMain; // pointer position along main axis
 
   @override
   void initState() {
@@ -315,9 +336,30 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   if (factor != 1.0 && factor.isFinite) {
                     final double anchor =
                         vertical ? e.localPosition.dy : e.localPosition.dx;
+                    if (widget.enableFisheye) {
+                      setState(() {
+                        _lensCenterMain = anchor;
+                      });
+                    }
                     _zoomAnchored(factor, anchor);
                   }
                 }
+              },
+              onPointerHover: (e) {
+                if (!widget.enableFisheye) return;
+                final double anchor =
+                    vertical ? e.localPosition.dy : e.localPosition.dx;
+                setState(() {
+                  _lensCenterMain = anchor;
+                });
+              },
+              onPointerMove: (e) {
+                if (!widget.enableFisheye) return;
+                final double anchor =
+                    vertical ? e.localPosition.dy : e.localPosition.dx;
+                setState(() {
+                  _lensCenterMain = anchor;
+                });
               },
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -333,6 +375,10 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                 onScaleUpdate: (details) {
                   final box = context.findRenderObject() as RenderBox;
                   final local = box.globalToLocal(details.focalPoint);
+                  if (widget.enableFisheye) {
+                    final double anchor = vertical ? local.dy : local.dx;
+                    _lensCenterMain = anchor;
+                  }
                   if (details.scale != 1.0) {
                     // Pinch zoom anchored at focal point
                     final double anchor = vertical ? local.dy : local.dx;
@@ -360,47 +406,63 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                 child: SizedBox(
                   width: paintWidth,
                   height: paintHeight,
-                  child: ClipRect(
-                    child: Stack(
-                      clipBehavior: Clip.hardEdge,
-                      children: [
-                        // Axis, grid, ticks, and optionally event shapes
-                        CustomPaint(
-                          size: Size(paintWidth, paintHeight),
-                          painter: _Painter(
-                            events: widget.events,
-                            zoom: _zoom,
-                            panOffset: _panOffset,
-                            timelineColor: widget.timelineColor,
-                            eventColor: widget.eventColor,
-                            basePxPerMs: widget.basePixelsPerMillisecond,
-                            tickLabelColor: widget.tickLabelColor,
-                            axisThickness: widget.axisThickness,
-                            majorTickThickness: widget.majorTickThickness,
-                            minorTickThickness: widget.minorTickThickness,
-                            minorTickColor: widget.minorTickColor,
-                            labelStyleByLOD: widget.labelStyleByLOD,
-                            tickLabelStyle: widget.tickLabelStyle,
-                            tickLabelFontFamily: widget.tickLabelFontFamily,
-                            labelStride: widget.labelStride,
-                            tickPainter: widget.tickPainter,
-                            eventMarkerPainter: widget.eventMarkerPainter,
-                            eventMarkerOffset: widget.eventMarkerOffset,
-                            eventMarkerScale: widget.eventMarkerScale,
-                            tickOffset: widget.tickOffset,
-                            tickScale: widget.tickScale,
-                            showDefaultEventMarker:
-                                widget.showDefaultEventMarker,
-                            debug: widget.debugMode,
-                            vertical: vertical,
+                  child: MouseRegion(
+                    onExit: (e) {
+                      if (!widget.enableFisheye) return;
+                      setState(() {
+                        _lensCenterMain = null;
+                      });
+                    },
+                    child: ClipRect(
+                      child: Stack(
+                        clipBehavior: Clip.hardEdge,
+                        children: [
+                          // Axis, grid, ticks, and optionally event shapes
+                          CustomPaint(
+                            size: Size(paintWidth, paintHeight),
+                            painter: _Painter(
+                              events: widget.events,
+                              zoom: _zoom,
+                              panOffset: _panOffset,
+                              timelineColor: widget.timelineColor,
+                              eventColor: widget.eventColor,
+                              basePxPerMs: widget.basePixelsPerMillisecond,
+                              tickLabelColor: widget.tickLabelColor,
+                              axisThickness: widget.axisThickness,
+                              majorTickThickness: widget.majorTickThickness,
+                              minorTickThickness: widget.minorTickThickness,
+                              minorTickColor: widget.minorTickColor,
+                              labelStyleByLOD: widget.labelStyleByLOD,
+                              tickLabelStyle: widget.tickLabelStyle,
+                              tickLabelFontFamily: widget.tickLabelFontFamily,
+                              labelStride: widget.labelStride,
+                              tickPainter: widget.tickPainter,
+                              eventMarkerPainter: widget.eventMarkerPainter,
+                              eventMarkerOffset: widget.eventMarkerOffset,
+                              eventMarkerScale: widget.eventMarkerScale,
+                              tickOffset: widget.tickOffset,
+                              tickScale: widget.tickScale,
+                              showDefaultEventMarker:
+                                  widget.showDefaultEventMarker,
+                              debug: widget.debugMode,
+                              vertical: vertical,
+                              lensEnabled: widget.enableFisheye,
+                              lensCenterMainAxis: _lensCenterMain,
+                              lensIntensity: widget.fisheyeIntensity,
+                              lensRadiusPx: widget.fisheyeRadiusPx,
+                              lensHardness: widget.fisheyeHardness,
+                              lensScaleTicks: widget.fisheyeScaleTicks,
+                              lensScaleMarkers: widget.fisheyeScaleMarkers,
+                              lensScaleLabels: widget.fisheyeScaleLabels,
+                            ),
                           ),
-                        ),
-                        if (widget.eventMarkerBuilder != null)
-                          ..._buildEventMarkerWidgets(
-                            Size(paintWidth, paintHeight),
-                            vertical,
-                          ),
-                      ],
+                          if (widget.eventMarkerBuilder != null)
+                            ..._buildEventMarkerWidgets(
+                              Size(paintWidth, paintHeight),
+                              vertical,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -449,11 +511,23 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     for (final ev in widget.events) {
       final mainPos =
           (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      Offset pos =
-          vertical ? Offset(axisCenter, mainPos) : Offset(mainPos, axisCenter);
+      double mappedMain = mainPos;
+      double localScale = 1.0;
+      if (widget.enableFisheye && _lensCenterMain != null) {
+        final dx = (mainPos - _lensCenterMain!).abs();
+        final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
+        final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
+        final factor = 1.0 + (widget.fisheyeIntensity - 1.0) * falloff;
+        mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
+        localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
+      }
+      Offset pos = vertical
+          ? Offset(axisCenter, mappedMain)
+          : Offset(mappedMain, axisCenter);
       final Offset userOffset = (ev.markerOffset ?? widget.eventMarkerOffset);
       pos = pos + userOffset;
-      final double hitRadius = 10 * (ev.markerScale ?? widget.eventMarkerScale);
+      final double hitRadius =
+          10 * (ev.markerScale ?? widget.eventMarkerScale) * localScale;
       if ((p - pos).distance <= hitRadius) return ev;
     }
     return null;
@@ -469,9 +543,19 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     for (final ev in widget.events) {
       final mainPos =
           (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+      double mappedMain = mainPos;
+      double localScale = 1.0;
+      if (widget.enableFisheye && _lensCenterMain != null) {
+        final dx = (mainPos - _lensCenterMain!).abs();
+        final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
+        final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
+        final factor = 1.0 + (widget.fisheyeIntensity - 1.0) * falloff;
+        mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
+        localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
+      }
       Offset basePos = vertical
-          ? Offset(centerCross, mainPos)
-          : Offset(mainPos, centerCross);
+          ? Offset(centerCross, mappedMain)
+          : Offset(mappedMain, centerCross);
       basePos = basePos + (ev.markerOffset ?? widget.eventMarkerOffset);
       final info = EventMarkerInfo(
         position: basePos,
@@ -480,7 +564,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
         axisCenterCross: centerCross,
         vertical: vertical,
         canvasSize: size,
-        markerScale: (ev.markerScale ?? widget.eventMarkerScale),
+        markerScale: (ev.markerScale ?? widget.eventMarkerScale) * localScale,
       );
       final w = GestureDetector(
         behavior: HitTestBehavior.translucent,
@@ -534,6 +618,15 @@ class _Painter extends CustomPainter {
   final bool showDefaultEventMarker;
   final bool debug;
   final bool vertical;
+  // fisheye
+  final bool lensEnabled;
+  final double? lensCenterMainAxis;
+  final double lensIntensity;
+  final double lensRadiusPx;
+  final double lensHardness;
+  final bool lensScaleTicks;
+  final bool lensScaleMarkers;
+  final bool lensScaleLabels;
   _Painter({
     required this.events,
     required this.zoom,
@@ -559,11 +652,36 @@ class _Painter extends CustomPainter {
     required this.showDefaultEventMarker,
     required this.debug,
     required this.vertical,
+    required this.lensEnabled,
+    required this.lensCenterMainAxis,
+    required this.lensIntensity,
+    required this.lensRadiusPx,
+    required this.lensHardness,
+    required this.lensScaleTicks,
+    required this.lensScaleMarkers,
+    required this.lensScaleLabels,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final centerCross = vertical ? size.width / 2 : size.height / 2;
+    double mapMain(double v) {
+      if (!lensEnabled || lensCenterMainAxis == null) return v;
+      final dx = (v - lensCenterMainAxis!).abs();
+      final t = (dx / lensRadiusPx).clamp(0.0, 1.0);
+      final falloff = math.pow(1.0 - t, lensHardness).toDouble();
+      final f = 1.0 + (lensIntensity - 1.0) * falloff;
+      return lensCenterMainAxis! + (v - lensCenterMainAxis!) * f;
+    }
+
+    double factorAt(double v) {
+      if (!lensEnabled || lensCenterMainAxis == null) return 1.0;
+      final dx = (v - lensCenterMainAxis!).abs();
+      final t = (dx / lensRadiusPx).clamp(0.0, 1.0);
+      final falloff = math.pow(1.0 - t, lensHardness).toDouble();
+      return 1.0 + (lensIntensity - 1.0) * falloff;
+    }
+
     // Draw base axis line
     final axisPaint = Paint()
       ..color = timelineColor
@@ -603,29 +721,117 @@ class _Painter extends CustomPainter {
       size,
       vertical: vertical,
     );
-    // Grid
-    tickManager.renderGrid(
-      canvas,
-      zoom,
-      panOffset,
-      size,
-      vertical: vertical,
-    );
+    // Grid (kept linear for performance; optionally can be warped in future)
+    tickManager.renderGrid(canvas, zoom, panOffset, size, vertical: vertical);
     // Axis ticks + labels (labels are attached to major ticks only)
-    tickManager.renderTicks(
-      canvas: canvas,
-      ticks: ticks,
-      centerY: centerCross,
-      size: size,
-      labelStride: labelStride,
-      styleByLOD: labelStyleByLOD,
-      baseLabelStyle: tickLabelStyle,
-      fontFamilyOverride: tickLabelFontFamily,
-      vertical: vertical,
-      customPainter: tickPainter,
-      tickOffset: tickOffset,
-      tickScale: tickScale,
-    );
+    // Render ticks, warping positions and optionally scaling height near lens
+    int majorIndex = 0;
+    for (final tick in ticks) {
+      final mappedX = mapMain(tick.x);
+      final localFactor = lensScaleTicks ? factorAt(tick.x) : 1.0;
+      final effectiveScale = tickScale * localFactor;
+      if (tickPainter != null) {
+        final info = TickInfo(
+          positionMainAxis: mappedX,
+          centerCrossAxis: centerCross,
+          height: tick.h * effectiveScale,
+          isMajor: tick.isMajor,
+          label: tick.label,
+          vertical: vertical,
+        );
+        final ctx = TickDrawContext(
+          size: size,
+          axisColor: timelineColor,
+          minorColor: (minorTickColor ?? timelineColor.withOpacity(0.7)),
+          tickOffset: tickOffset,
+          tickScale: 1.0, // already baked into height above
+        );
+        tickPainter!(canvas, info, ctx);
+      } else {
+        final p = tick.isMajor
+            ? (Paint()
+              ..color = timelineColor
+              ..strokeWidth = majorTickThickness)
+            : (Paint()
+              ..color = (minorTickColor ?? timelineColor.withOpacity(0.7))
+              ..strokeWidth = minorTickThickness);
+        final double scaledH = tick.h * effectiveScale;
+        if (!vertical) {
+          canvas.drawLine(
+            Offset(
+                mappedX + tickOffset.dx, centerCross - scaledH + tickOffset.dy),
+            Offset(
+                mappedX + tickOffset.dx, centerCross + scaledH + tickOffset.dy),
+            p,
+          );
+        } else {
+          canvas.drawLine(
+            Offset(
+                centerCross - scaledH + tickOffset.dx, mappedX + tickOffset.dy),
+            Offset(
+                centerCross + scaledH + tickOffset.dx, mappedX + tickOffset.dy),
+            p,
+          );
+        }
+      }
+      if (tick.isMajor && tick.label.isNotEmpty) {
+        if (labelStride > 1 && (majorIndex++ % labelStride != 0)) {
+          _PackageTickManager.instance.diagnostics?.labelsDroppedByStride++;
+          continue;
+        }
+        TextStyle style = tickLabelStyle ??
+            TextStyle(
+              color: tickLabelColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            );
+        if (style.color == null) {
+          style = style.merge(TextStyle(color: tickLabelColor));
+        }
+        if (labelStyleByLOD != null) {
+          final lod =
+              _PackageTickManager.instance._inferLODFromLabel(tick.label);
+          final baseForAll = labelStyleByLOD![TimeScaleLOD.all];
+          if (baseForAll != null) style = style.merge(baseForAll);
+          final specific = labelStyleByLOD![lod];
+          if (specific != null) style = style.merge(specific);
+        }
+        if (tickLabelFontFamily != null && tickLabelFontFamily!.isNotEmpty) {
+          style = style.merge(TextStyle(fontFamily: tickLabelFontFamily));
+        }
+        // Apply fisheye scaling to label font size if enabled
+        if (lensEnabled && lensScaleLabels && lensCenterMainAxis != null) {
+          final localFactor = factorAt(tick.x);
+          final baseSize = style.fontSize ?? 12;
+          style = style.copyWith(fontSize: baseSize * localFactor);
+        }
+        final tp = _PackageTickManager.instance
+            ._tp('${tick.label}_${tickLabelColor.value}_12_5', style);
+        tp.layout();
+        if (!vertical) {
+          final tx = mappedX + tickOffset.dx - tp.width / 2;
+          if (tx <= size.width && tx + tp.width >= 0) {
+            tp.paint(
+                canvas,
+                Offset(
+                    tx,
+                    centerCross +
+                        (tick.h * effectiveScale) +
+                        4 +
+                        tickOffset.dy));
+            _PackageTickManager.instance.diagnostics?.labelsPainted++;
+          }
+        } else {
+          final ty = mappedX + tickOffset.dy - tp.height / 2;
+          final double labelX =
+              centerCross + (tick.h * effectiveScale) + 4 + tickOffset.dx;
+          if (ty <= size.height && ty + tp.height >= 0) {
+            tp.paint(canvas, Offset(labelX, ty));
+            _PackageTickManager.instance.diagnostics?.labelsPainted++;
+          }
+        }
+      }
+    }
 
     // Debug overlay with diagnostics about LOD selection and label visibility
     if (debug) {
@@ -665,9 +871,11 @@ class _Painter extends CustomPainter {
       for (final ev in events) {
         final mainPos =
             (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+        final mappedMain = mapMain(mainPos);
+        final localFactor = lensScaleMarkers ? factorAt(mainPos) : 1.0;
         Offset basePos = vertical
-            ? Offset(centerCross, mainPos)
-            : Offset(mainPos, centerCross);
+            ? Offset(centerCross, mappedMain)
+            : Offset(mappedMain, centerCross);
         final Offset userOffset = (ev.markerOffset ?? eventMarkerOffset);
         basePos = basePos + userOffset;
         final info = EventMarkerInfo(
@@ -677,7 +885,7 @@ class _Painter extends CustomPainter {
           axisCenterCross: centerCross,
           vertical: vertical,
           canvasSize: size,
-          markerScale: (ev.markerScale ?? eventMarkerScale),
+          markerScale: (ev.markerScale ?? eventMarkerScale) * localFactor,
         );
         eventMarkerPainter!(canvas, ev, info);
       }
@@ -687,11 +895,13 @@ class _Painter extends CustomPainter {
       for (final ev in events) {
         final mainPos =
             (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+        final mappedMain = mapMain(mainPos);
+        final localFactor = lensScaleMarkers ? factorAt(mainPos) : 1.0;
         Offset pos = vertical
-            ? Offset(centerCross, mainPos)
-            : Offset(mainPos, centerCross);
+            ? Offset(centerCross, mappedMain)
+            : Offset(mappedMain, centerCross);
         pos = pos + (ev.markerOffset ?? eventMarkerOffset);
-        final double r = 6 * (ev.markerScale ?? eventMarkerScale);
+        final double r = 6 * (ev.markerScale ?? eventMarkerScale) * localFactor;
         canvas.drawCircle(pos, r, marker);
       }
     }
@@ -705,7 +915,15 @@ class _Painter extends CustomPainter {
       old.zoom != zoom ||
       old.panOffset != panOffset ||
       old.tickPainter != tickPainter ||
-      old.eventMarkerPainter != eventMarkerPainter;
+      old.eventMarkerPainter != eventMarkerPainter ||
+      old.lensEnabled != lensEnabled ||
+      old.lensCenterMainAxis != lensCenterMainAxis ||
+      old.lensIntensity != lensIntensity ||
+      old.lensRadiusPx != lensRadiusPx ||
+      old.lensHardness != lensHardness ||
+      old.lensScaleTicks != lensScaleTicks ||
+      old.lensScaleMarkers != lensScaleMarkers ||
+      old.lensScaleLabels != lensScaleLabels;
 }
 
 // Minimal, namespaced copy of the performant tick manager for the package
