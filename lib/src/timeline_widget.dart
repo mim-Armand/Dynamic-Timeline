@@ -4,6 +4,7 @@
 import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 typedef TimelineEventTap = void Function(TimelineEvent event);
 typedef EventMarkerWidgetBuilder = Widget Function(
@@ -167,6 +168,32 @@ class TimelineWidget extends StatefulWidget {
   final bool fisheyeScaleMarkers;
   // Whether to scale tick label font size by lens
   final bool fisheyeScaleLabels;
+  // Lens UX parameters
+  // Enter/exit animation durations in milliseconds
+  final int fisheyeEnterMs;
+  final int fisheyeExitMs;
+  // Smoothing factor (per ~16ms frame) for lens center following [0..1]
+  final double fisheyeFollowAlpha;
+  // Activation toggles
+  final bool fisheyeActivateOnHover;
+  final bool fisheyeActivateOnLongPress;
+  // Visual indicator under cursor and edge feather opacity
+  final bool fisheyeShowIndicator;
+  final double fisheyeEdgeFeatherOpacity;
+  // Lens color override and glow highlighting under the lens
+  final Color? fisheyeColor;
+  final bool fisheyeGlowEnabled;
+  final Color? fisheyeGlowColor;
+  final double fisheyeGlowOpacity;
+  // Multiplier applied to lens radius for glow reach
+  final double fisheyeGlowRadiusMultiplier;
+  // Gaussian blur for glow softness (sigma)
+  final double fisheyeGlowBlurSigma;
+  // Blending modes for lens visuals
+  final BlendMode? fisheyeBlendMode; // indicator + feather
+  final BlendMode? fisheyeGlowBlendMode;
+  // Draw glow/indicator above everything (including event widgets)
+  final bool fisheyeGlowOnTop;
 
   const TimelineWidget({
     super.key,
@@ -211,25 +238,53 @@ class TimelineWidget extends StatefulWidget {
     this.fisheyeScaleTicks = true,
     this.fisheyeScaleMarkers = true,
     this.fisheyeScaleLabels = true,
+    this.fisheyeEnterMs = 120,
+    this.fisheyeExitMs = 120,
+    this.fisheyeFollowAlpha = 0.25,
+    this.fisheyeActivateOnHover = true,
+    this.fisheyeActivateOnLongPress = true,
+    this.fisheyeShowIndicator = true,
+    this.fisheyeEdgeFeatherOpacity = 0.12,
+    this.fisheyeColor,
+    this.fisheyeGlowEnabled = false,
+    this.fisheyeGlowColor,
+    this.fisheyeGlowOpacity = 0.08,
+    this.fisheyeGlowRadiusMultiplier = 1.0,
+    this.fisheyeGlowBlurSigma = 16.0,
+    this.fisheyeBlendMode,
+    this.fisheyeGlowBlendMode,
+    this.fisheyeGlowOnTop = false,
   });
 
   @override
   State<TimelineWidget> createState() => _TimelineWidgetState();
 }
 
-class _TimelineWidgetState extends State<TimelineWidget> {
+class _TimelineWidgetState extends State<TimelineWidget>
+    with TickerProviderStateMixin {
   late double _zoom;
   double _panOffset = 0;
   double _lastViewExtent = 0; // length along the main axis
   double _effectiveMinZoom = 0.5, _effectiveMaxZoom = 3.0;
   double? _initialCenterMs;
-  double? _lensCenterMain; // pointer position along main axis
+  double? _lensCenterMain; // smoothed pointer position along main axis
+  double? _lensTargetMain; // raw target pointer position along main axis
+  late final Ticker _lensTicker;
+  late final AnimationController _lensActivationCtrl;
+  Duration _lastLensTick = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _zoom = widget.initialZoom;
     _applyZoomLODExtents();
+    _lensActivationCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+      reverseDuration: const Duration(milliseconds: 120),
+      value: 0,
+    );
+    _lensTicker = createTicker(_onLensTick)..start();
   }
 
   void _applyZoomLODExtents() {
@@ -275,6 +330,50 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     _effectiveMinZoom = minZ;
     _effectiveMaxZoom = maxZ;
     _zoom = _zoom.clamp(minZ, maxZ);
+  }
+
+  @override
+  void dispose() {
+    _lensTicker.dispose();
+    _lensActivationCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onLensTick(Duration elapsed) {
+    final double dtMs = _lastLensTick == Duration.zero
+        ? 16.0
+        : (elapsed - _lastLensTick).inMilliseconds.toDouble().clamp(1.0, 33.0);
+    _lastLensTick = elapsed;
+    if (!mounted) return;
+    if (!widget.enableFisheye) return;
+    // Smooth follow toward target
+    if (_lensTargetMain != null) {
+      if (_lensCenterMain == null) {
+        _lensCenterMain = _lensTargetMain;
+      } else {
+        final double baseAlpha = widget.fisheyeFollowAlpha;
+        final double a = 1 - math.pow(1 - baseAlpha, dtMs / 16.0).toDouble();
+        _lensCenterMain =
+            _lensCenterMain! + (_lensTargetMain! - _lensCenterMain!) * a;
+      }
+    }
+    // Avoid extra repaints if nothing is active
+    if (_lensTargetMain == null && _lensActivationCtrl.value == 0.0) return;
+    setState(() {});
+  }
+
+  void _activateLens() {
+    if (!widget.enableFisheye) return;
+    _lensActivationCtrl.duration =
+        Duration(milliseconds: widget.fisheyeEnterMs);
+    _lensActivationCtrl.forward();
+  }
+
+  void _deactivateLens() {
+    _lensActivationCtrl.reverseDuration =
+        Duration(milliseconds: widget.fisheyeExitMs);
+    _lensActivationCtrl.reverse();
+    _lensTargetMain = null;
   }
 
   // Keep anchor under cursor/fingers during zoom
@@ -336,34 +435,54 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   if (factor != 1.0 && factor.isFinite) {
                     final double anchor =
                         vertical ? e.localPosition.dy : e.localPosition.dx;
-                    if (widget.enableFisheye) {
-                      setState(() {
-                        _lensCenterMain = anchor;
-                      });
+                    if (widget.enableFisheye && widget.fisheyeActivateOnHover) {
+                      _lensTargetMain = anchor;
+                      _activateLens();
                     }
                     _zoomAnchored(factor, anchor);
                   }
                 }
               },
               onPointerHover: (e) {
-                if (!widget.enableFisheye) return;
+                if (!(widget.enableFisheye && widget.fisheyeActivateOnHover))
+                  return;
                 final double anchor =
                     vertical ? e.localPosition.dy : e.localPosition.dx;
-                setState(() {
-                  _lensCenterMain = anchor;
-                });
+                _lensTargetMain = anchor;
+                _activateLens();
               },
               onPointerMove: (e) {
-                if (!widget.enableFisheye) return;
+                if (!(widget.enableFisheye && widget.fisheyeActivateOnHover))
+                  return;
                 final double anchor =
                     vertical ? e.localPosition.dy : e.localPosition.dx;
-                setState(() {
-                  _lensCenterMain = anchor;
-                });
+                _lensTargetMain = anchor;
               },
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onDoubleTap: _centerOnMidpoint,
+                onLongPressStart: (d) {
+                  if (!(widget.enableFisheye &&
+                      widget.fisheyeActivateOnLongPress)) return;
+                  final box = context.findRenderObject() as RenderBox;
+                  final local = box.globalToLocal(d.globalPosition);
+                  final double anchor = vertical ? local.dy : local.dx;
+                  _lensTargetMain = anchor;
+                  _activateLens();
+                },
+                onLongPressMoveUpdate: (d) {
+                  if (!(widget.enableFisheye &&
+                      widget.fisheyeActivateOnLongPress)) return;
+                  final box = context.findRenderObject() as RenderBox;
+                  final local = box.globalToLocal(d.globalPosition);
+                  final double anchor = vertical ? local.dy : local.dx;
+                  _lensTargetMain = anchor;
+                },
+                onLongPressEnd: (d) {
+                  if (!(widget.enableFisheye &&
+                      widget.fisheyeActivateOnLongPress)) return;
+                  _deactivateLens();
+                },
                 onTapDown: (d) {
                   if (widget.onEventTap == null) return;
                   final hit = _hitTestEvent(
@@ -375,10 +494,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                 onScaleUpdate: (details) {
                   final box = context.findRenderObject() as RenderBox;
                   final local = box.globalToLocal(details.focalPoint);
-                  if (widget.enableFisheye) {
-                    final double anchor = vertical ? local.dy : local.dx;
-                    _lensCenterMain = anchor;
-                  }
+                  // Do not auto-activate lens on pinch; hover/long-press only
                   if (details.scale != 1.0) {
                     // Pinch zoom anchored at focal point
                     final double anchor = vertical ? local.dy : local.dx;
@@ -409,9 +525,7 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                   child: MouseRegion(
                     onExit: (e) {
                       if (!widget.enableFisheye) return;
-                      setState(() {
-                        _lensCenterMain = null;
-                      });
+                      _deactivateLens();
                     },
                     child: ClipRect(
                       child: Stack(
@@ -454,12 +568,52 @@ class _TimelineWidgetState extends State<TimelineWidget> {
                               lensScaleTicks: widget.fisheyeScaleTicks,
                               lensScaleMarkers: widget.fisheyeScaleMarkers,
                               lensScaleLabels: widget.fisheyeScaleLabels,
+                              lensActivation: _lensActivationCtrl.value,
+                              showLensIndicator: widget.fisheyeShowIndicator,
+                              edgeFeatherOpacity:
+                                  widget.fisheyeEdgeFeatherOpacity,
+                              blendMode: widget.fisheyeBlendMode,
+                              glowBlendMode: widget.fisheyeGlowBlendMode,
+                              lensColor: widget.fisheyeColor,
+                              glowEnabled: widget.fisheyeGlowEnabled,
+                              glowColor: widget.fisheyeGlowColor,
+                              glowOpacity: widget.fisheyeGlowOpacity,
+                              glowRadiusMultiplier:
+                                  widget.fisheyeGlowRadiusMultiplier,
+                              glowBlurSigma: widget.fisheyeGlowBlurSigma,
                             ),
                           ),
                           if (widget.eventMarkerBuilder != null)
                             ..._buildEventMarkerWidgets(
                               Size(paintWidth, paintHeight),
                               vertical,
+                            ),
+                          if (widget.enableFisheye && widget.fisheyeGlowOnTop)
+                            IgnorePointer(
+                              child: CustomPaint(
+                                size: Size(paintWidth, paintHeight),
+                                painter: _LensOverlayPainter(
+                                  timelineColor: widget.timelineColor,
+                                  lensEnabled: widget.enableFisheye,
+                                  lensCenterMainAxis: _lensCenterMain,
+                                  vertical: vertical,
+                                  lensActivation: _lensActivationCtrl.value,
+                                  lensRadiusPx: widget.fisheyeRadiusPx,
+                                  lensColor: widget.fisheyeColor,
+                                  edgeFeatherOpacity:
+                                      widget.fisheyeEdgeFeatherOpacity,
+                                  showLensIndicator:
+                                      widget.fisheyeShowIndicator,
+                                  blendMode: widget.fisheyeBlendMode,
+                                  glowEnabled: widget.fisheyeGlowEnabled,
+                                  glowColor: widget.fisheyeGlowColor,
+                                  glowOpacity: widget.fisheyeGlowOpacity,
+                                  glowRadiusMultiplier:
+                                      widget.fisheyeGlowRadiusMultiplier,
+                                  glowBlurSigma: widget.fisheyeGlowBlurSigma,
+                                  glowBlendMode: widget.fisheyeGlowBlendMode,
+                                ),
+                              ),
                             ),
                         ],
                       ),
@@ -508,16 +662,19 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     final bool vertical = widget.orientation == Axis.vertical;
     // naive marker hit test: circle radius 8 at axis center
     final axisCenter = vertical ? size.width * 0.5 : size.height * 0.5;
+    final double activation =
+        widget.enableFisheye ? _lensActivationCtrl.value : 0.0;
     for (final ev in widget.events) {
       final mainPos =
           (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
       double mappedMain = mainPos;
       double localScale = 1.0;
-      if (widget.enableFisheye && _lensCenterMain != null) {
+      if (widget.enableFisheye && _lensCenterMain != null && activation > 0) {
         final dx = (mainPos - _lensCenterMain!).abs();
         final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
         final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
-        final factor = 1.0 + (widget.fisheyeIntensity - 1.0) * falloff;
+        final factor =
+            1.0 + (widget.fisheyeIntensity - 1.0) * falloff * activation;
         mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
         localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
       }
@@ -540,16 +697,19 @@ class _TimelineWidgetState extends State<TimelineWidget> {
     final scale = base * _zoom;
     final leftMs = -_panOffset / scale;
     final double centerCross = vertical ? size.width / 2 : size.height / 2;
+    final double activation =
+        widget.enableFisheye ? _lensActivationCtrl.value : 0.0;
     for (final ev in widget.events) {
       final mainPos =
           (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
       double mappedMain = mainPos;
       double localScale = 1.0;
-      if (widget.enableFisheye && _lensCenterMain != null) {
+      if (widget.enableFisheye && _lensCenterMain != null && activation > 0) {
         final dx = (mainPos - _lensCenterMain!).abs();
         final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
         final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
-        final factor = 1.0 + (widget.fisheyeIntensity - 1.0) * falloff;
+        final factor =
+            1.0 + (widget.fisheyeIntensity - 1.0) * falloff * activation;
         mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
         localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
       }
@@ -627,6 +787,17 @@ class _Painter extends CustomPainter {
   final bool lensScaleTicks;
   final bool lensScaleMarkers;
   final bool lensScaleLabels;
+  final double lensActivation;
+  final bool showLensIndicator;
+  final double edgeFeatherOpacity;
+  final Color? lensColor;
+  final bool glowEnabled;
+  final Color? glowColor;
+  final double glowOpacity;
+  final double glowRadiusMultiplier;
+  final double glowBlurSigma;
+  final BlendMode? blendMode;
+  final BlendMode? glowBlendMode;
   _Painter({
     required this.events,
     required this.zoom,
@@ -660,6 +831,17 @@ class _Painter extends CustomPainter {
     required this.lensScaleTicks,
     required this.lensScaleMarkers,
     required this.lensScaleLabels,
+    required this.lensActivation,
+    required this.showLensIndicator,
+    required this.edgeFeatherOpacity,
+    required this.lensColor,
+    required this.glowEnabled,
+    required this.glowColor,
+    required this.glowOpacity,
+    required this.glowRadiusMultiplier,
+    required this.glowBlurSigma,
+    required this.blendMode,
+    required this.glowBlendMode,
   });
 
   @override
@@ -670,7 +852,7 @@ class _Painter extends CustomPainter {
       final dx = (v - lensCenterMainAxis!).abs();
       final t = (dx / lensRadiusPx).clamp(0.0, 1.0);
       final falloff = math.pow(1.0 - t, lensHardness).toDouble();
-      final f = 1.0 + (lensIntensity - 1.0) * falloff;
+      final f = 1.0 + (lensIntensity - 1.0) * falloff * lensActivation;
       return lensCenterMainAxis! + (v - lensCenterMainAxis!) * f;
     }
 
@@ -679,7 +861,7 @@ class _Painter extends CustomPainter {
       final dx = (v - lensCenterMainAxis!).abs();
       final t = (dx / lensRadiusPx).clamp(0.0, 1.0);
       final falloff = math.pow(1.0 - t, lensHardness).toDouble();
-      return 1.0 + (lensIntensity - 1.0) * falloff;
+      return 1.0 + (lensIntensity - 1.0) * falloff * lensActivation;
     }
 
     // Draw base axis line
@@ -864,6 +1046,106 @@ class _Painter extends CustomPainter {
       }
     }
 
+    // Lens indicator and edge feathering
+    if (lensEnabled && lensCenterMainAxis != null && lensActivation > 0) {
+      final Color baseColor = (lensColor ?? timelineColor);
+      final indicatorAlpha = 0.35 * lensActivation;
+      if (showLensIndicator && indicatorAlpha > 0) {
+        final p = Paint()
+          ..color = baseColor.withOpacity(indicatorAlpha)
+          ..strokeWidth = 1.0
+          ..blendMode = (blendMode ?? BlendMode.srcOver);
+        if (!vertical) {
+          canvas.drawLine(
+            Offset(lensCenterMainAxis!, 0),
+            Offset(lensCenterMainAxis!, size.height),
+            p,
+          );
+        } else {
+          canvas.drawLine(
+            Offset(0, lensCenterMainAxis!),
+            Offset(size.width, lensCenterMainAxis!),
+            p,
+          );
+        }
+      }
+      final op = edgeFeatherOpacity * lensActivation;
+      if (op > 0) {
+        final rect = !vertical
+            ? Rect.fromLTWH(
+                lensCenterMainAxis! - lensRadiusPx,
+                0,
+                lensRadiusPx * 2,
+                size.height,
+              )
+            : Rect.fromLTWH(
+                0,
+                lensCenterMainAxis! - lensRadiusPx,
+                size.width,
+                lensRadiusPx * 2,
+              );
+        final shader = (vertical
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      baseColor.withOpacity(op),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  )
+                : LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      baseColor.withOpacity(op),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  ))
+            .createShader(rect);
+        final paint = Paint()
+          ..shader = shader
+          ..blendMode = (blendMode ?? BlendMode.srcOver);
+        canvas.drawRect(rect, paint);
+      }
+
+      // Optional glow highlighting like old radios
+      if (glowEnabled) {
+        final glowBase =
+            (glowColor ?? baseColor).withOpacity(glowOpacity * lensActivation);
+        final glowPaint = Paint()
+          ..color = glowBase
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowBlurSigma)
+          ..blendMode = (glowBlendMode ?? BlendMode.srcOver);
+        final double glowRadius =
+            lensRadiusPx * (1.0 + glowRadiusMultiplier).clamp(0.0, 3.0);
+        if (!vertical) {
+          final rectGlow = Rect.fromLTWH(
+            lensCenterMainAxis! - glowRadius,
+            0,
+            glowRadius * 2,
+            size.height,
+          );
+          canvas.drawRRect(
+            RRect.fromRectAndCorners(rectGlow),
+            glowPaint,
+          );
+        } else {
+          final rectGlow = Rect.fromLTWH(
+            0,
+            lensCenterMainAxis! - glowRadius,
+            size.width,
+            glowRadius * 2,
+          );
+          canvas.drawRRect(
+            RRect.fromRectAndCorners(rectGlow),
+            glowPaint,
+          );
+        }
+      }
+    }
+
     // Events
     // Draw event markers if using shape painter. If a widget builder is
     // provided, the widgets are drawn in the overlaying Stack.
@@ -924,6 +1206,166 @@ class _Painter extends CustomPainter {
       old.lensScaleTicks != lensScaleTicks ||
       old.lensScaleMarkers != lensScaleMarkers ||
       old.lensScaleLabels != lensScaleLabels;
+}
+
+/// Paints only the lens visuals (indicator, feather, glow) to allow stacking
+/// them above event widgets when requested.
+class _LensOverlayPainter extends CustomPainter {
+  final Color timelineColor;
+  final bool lensEnabled;
+  final double? lensCenterMainAxis;
+  final bool vertical;
+  final double lensActivation;
+  final double lensRadiusPx;
+  final Color? lensColor;
+  final double edgeFeatherOpacity;
+  final bool showLensIndicator;
+  final BlendMode? blendMode;
+  final bool glowEnabled;
+  final Color? glowColor;
+  final double glowOpacity;
+  final double glowRadiusMultiplier;
+  final double glowBlurSigma;
+  final BlendMode? glowBlendMode;
+
+  _LensOverlayPainter({
+    required this.timelineColor,
+    required this.lensEnabled,
+    required this.lensCenterMainAxis,
+    required this.vertical,
+    required this.lensActivation,
+    required this.lensRadiusPx,
+    required this.lensColor,
+    required this.edgeFeatherOpacity,
+    required this.showLensIndicator,
+    required this.blendMode,
+    required this.glowEnabled,
+    required this.glowColor,
+    required this.glowOpacity,
+    required this.glowRadiusMultiplier,
+    required this.glowBlurSigma,
+    required this.glowBlendMode,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (!lensEnabled || lensCenterMainAxis == null || lensActivation <= 0) {
+      return;
+    }
+    final Color baseColor = (lensColor ?? timelineColor);
+    final indicatorAlpha = 0.35 * lensActivation;
+    if (showLensIndicator && indicatorAlpha > 0) {
+      final p = Paint()
+        ..color = baseColor.withOpacity(indicatorAlpha)
+        ..strokeWidth = 1.0
+        ..blendMode = (blendMode ?? BlendMode.srcOver);
+      if (!vertical) {
+        canvas.drawLine(
+          Offset(lensCenterMainAxis!, 0),
+          Offset(lensCenterMainAxis!, size.height),
+          p,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(0, lensCenterMainAxis!),
+          Offset(size.width, lensCenterMainAxis!),
+          p,
+        );
+      }
+    }
+    final op = edgeFeatherOpacity * lensActivation;
+    if (op > 0) {
+      final rect = !vertical
+          ? Rect.fromLTWH(
+              lensCenterMainAxis! - lensRadiusPx,
+              0,
+              lensRadiusPx * 2,
+              size.height,
+            )
+          : Rect.fromLTWH(
+              0,
+              lensCenterMainAxis! - lensRadiusPx,
+              size.width,
+              lensRadiusPx * 2,
+            );
+      final shader = (vertical
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    baseColor.withOpacity(op),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                )
+              : LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    baseColor.withOpacity(op),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ))
+          .createShader(rect);
+      final paint = Paint()
+        ..shader = shader
+        ..blendMode = (blendMode ?? BlendMode.srcOver);
+      canvas.drawRect(rect, paint);
+    }
+
+    if (glowEnabled) {
+      final glowBase =
+          (glowColor ?? baseColor).withOpacity(glowOpacity * lensActivation);
+      final glowPaint = Paint()
+        ..color = glowBase
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowBlurSigma)
+        ..blendMode = (glowBlendMode ?? BlendMode.srcOver);
+      final double glowRadius =
+          lensRadiusPx * (1.0 + glowRadiusMultiplier).clamp(0.0, 3.0);
+      if (!vertical) {
+        final rectGlow = Rect.fromLTWH(
+          lensCenterMainAxis! - glowRadius,
+          0,
+          glowRadius * 2,
+          size.height,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(rectGlow),
+          glowPaint,
+        );
+      } else {
+        final rectGlow = Rect.fromLTWH(
+          0,
+          lensCenterMainAxis! - glowRadius,
+          size.width,
+          glowRadius * 2,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(rectGlow),
+          glowPaint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LensOverlayPainter old) =>
+      old.lensEnabled != lensEnabled ||
+      old.lensCenterMainAxis != lensCenterMainAxis ||
+      old.vertical != vertical ||
+      old.lensActivation != lensActivation ||
+      old.lensRadiusPx != lensRadiusPx ||
+      old.lensColor != lensColor ||
+      old.edgeFeatherOpacity != edgeFeatherOpacity ||
+      old.showLensIndicator != showLensIndicator ||
+      old.blendMode != blendMode ||
+      old.glowEnabled != glowEnabled ||
+      old.glowColor != glowColor ||
+      old.glowOpacity != glowOpacity ||
+      old.glowRadiusMultiplier != glowRadiusMultiplier ||
+      old.glowBlurSigma != glowBlurSigma ||
+      old.glowBlendMode != glowBlendMode;
 }
 
 // Minimal, namespaced copy of the performant tick manager for the package

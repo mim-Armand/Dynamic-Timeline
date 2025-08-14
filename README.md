@@ -9,6 +9,7 @@ A performant, reusable horizontal timeline widget for Flutter with:
 - Event markers with tap callback and customizable widget/shape
 - Parent scroll suppression (prevents ancestor scrollables from hijacking gestures)
 - Optional fisheye lens magnification under the cursor (macOS dock style)
+  - Configurable color and optional glow highlighting under the lens
 
 [![pub package](https://img.shields.io/pub/v/interactive_timeline.svg)](https://pub.dev/packages/interactive_timeline)
 Published on [pub.dev](https://pub.dev/packages/interactive_timeline).
@@ -88,7 +89,7 @@ SizedBox(
 
 #### Fisheye lens (optional)
 
-Enable a dock-like magnification around the pointer along the main axis. Events, tick positions, and optionally tick heights and label font sizes grow smoothly near the cursor.
+Enable a dock-like magnification around the pointer along the main axis. Events, tick positions, and optionally tick heights and label font sizes grow smoothly near the cursor. Includes hover/long‑press activation, smoothing, and subtle visuals.
 
 ```dart
 TimelineWidget(
@@ -103,12 +104,31 @@ TimelineWidget(
   fisheyeScaleTicks: true,    // tick height grows near cursor
   fisheyeScaleMarkers: true,  // event markers grow near cursor
   fisheyeScaleLabels: true,   // tick label font size grows near cursor
+  // UX
+  fisheyeEnterMs: 140,
+  fisheyeExitMs: 160,
+  fisheyeFollowAlpha: 0.25,          // smoothing per ~frame
+  fisheyeActivateOnHover: true,
+  fisheyeActivateOnLongPress: true,
+  fisheyeShowIndicator: true,        // vertical line under the lens
+  fisheyeEdgeFeatherOpacity: 0.12,   // subtle band at radius
+  // Visual customization
+  fisheyeColor: Colors.deepPurple,       // indicator + feather color (optional)
+  fisheyeGlowEnabled: true,              // retro glow that illuminates the grid
+  fisheyeGlowColor: Colors.deepPurple,   // glow color (optional)
+  fisheyeGlowOpacity: 0.06,
+  fisheyeGlowRadiusMultiplier: 0.4,      // reach beyond radius (0..3)
+  fisheyeGlowBlurSigma: 14.0,            // softness
+  // Compositing
+  fisheyeBlendMode: BlendMode.plus,      // lens indicator + feather
+  fisheyeGlowBlendMode: BlendMode.screen // glow blending
 )
 ```
 
 Notes:
 - Works in both orientations. The lens follows the pointer along the main axis.
-- Hit testing respects marker scaling. Labels/ticks are re-positioned under the warp; tick labels can also scale in size if enabled.
+- Hit testing respects marker scaling. Labels/ticks are re-positioned under the warp; tick labels can also scale if enabled.
+- Lens activation is animated (enter/exit); the center follows the pointer smoothly.
 
 #### Event markers
 
