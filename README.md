@@ -281,3 +281,82 @@ pub.dev does not allow re-uploading the same version. For any fix, bump the vers
 - A minimal site is available under `docs/` and can be enabled via GitHub Pages (branch: `main`, folder: `/docs`).
 - After it’s live, consider setting `homepage:` in `pubspec.yaml` to the Pages URL.
 - If you prefer, move `demo1.png` into `docs/` (e.g., `docs/assets/`) and update links accordingly. Keeping it at the repo root also works for pub.dev README rendering.
+
+## TODO ideas
+### High‑impact UX improvements
+
+#### Snapping and guidance
+- Snap to ticks and/or nearest event with adjustable magnet strength and hysteresis.
+- “Now” indicator + “Jump to Today” button; optional auto-follow when near “now”.
+
+#### Navigation and controls
+- Keyboard shortcuts: arrows (pan), +/- (zoom), Home/End (range), Enter (center on selection).
+- Inertia/fling and springy edge clamping for pan; configurable friction/overscroll.
+- Smooth animated zoom/pan helpers: animateToTime, animateZoomTo, fitRange.
+
+#### Lens (fisheye) UX
+- Lens fade/scale animation on enter/exit, with motion smoothing so it trails the pointer slightly.
+- Edge feathering (fade at radius edge) and minimal lens indicator line under cursor.
+- Touch behavior: long‑press to summon lens, dismiss on lift; toggle param to disable on mobile.
+
+#### Readability and label quality
+- Collision‑aware labels: skip/ellipsize/alternate baselines, or stagger major/minor label rows.
+- Auto angle minor labels slightly at tight densities; text halo for contrast.
+- Adaptive tick density targeting “min px per label” to avoid clutter.
+
+#### Event interaction
+- Hover tooltips/popovers with title, date, and description; configurable delay.
+- Selection state with focus ring and keyboard navigation across events.
+- Overlap resolution: subtle vertical jitter/stacking to avoid event collisions at the axis.
+- Low‑zoom clustering (“+12 events”), expand on tap/zoom-in; optional mini‑timeline in tooltip.
+- Brush/range selection to highlight and pass a time window to consumers.
+
+#### Context and overview
+- Overview/minimap (small bar) showing the full range with the current viewport window.
+- Bookmarks: programmatic and user-defined anchors with quick-jump controls.
+
+#### Accessibility
+- Semantics for events and ticks; larger tap targets; high-contrast friendly defaults.
+- Screen reader flow: announce focused event and time; rotor-like navigation by unit (hour/day/year).
+
+#### Internationalization
+- Locale-aware formats (Intl hook), time zones, ISO-week options, RTL support.
+
+#### Theming
+- Design tokens: axis/label/marker colors, elevations, shadows; dark/high-contrast presets.
+- Motion preferences (respect “reduce motion”): disable animations or use gentle durations.
+
+#### Performance polish
+- RepaintBoundary for widget markers; layer caching for grid/axis; text painter cache already used.
+- Debounce hover-driven repaints; limit tick generation to on-screen + small margin.
+- Optional event virtualization when rendering widget-heavy markers.
+
+### API additions to enable the above
+#### Snapping/behavior
+- snapBehavior: {toTicks, toEvents, strength, hysteresisPx}
+- scrollPhysics: {inertia, friction, overscrollSpring}
+
+#### Animation helpers
+- animateToTime(DateTime, {duration, curve})
+- animateZoomTo(double, {anchorPx, duration, curve})
+- fitRange(DateTime start, DateTime end, {paddingPx})
+- onViewportChanged(Viewport v) with time range and px bounds.
+
+#### Lens configuration
+- lensBehavior: {showOnHover, showOnLongPress, enterMs, exitMs, followSmoothing, edgeFeather}
+#### Label/tick customization
+- tickFormatter(TimeScaleLOD, DateTime) → String
+- labelCollisionStrategy: {skip, ellipsize, stagger, angle}
+- minLabelSpacingPx, maxLabelAngleDeg
+#### Event UX
+- eventTooltipBuilder, tooltipDelayMs
+- onSelectionChanged(TimelineSelection)
+- clusterThresholdPx, clusterRenderer
+
+### Documentation/demo improvements
+- Add a “UX Features” section with toggles for snapping, lens animations, tooltips, clustering.
+- Include keyboard shortcuts overlay in the example.
+- DartPad/Storybook-style demos showing each behavior preset (Dense, Reading, Dock Lens, Accessibility).
+- Snap-to and keyboard navigation improve control and discoverability.
+- Lens animations/feathering make the magnification feel natural.
+- Collision-aware labels and tooltips improve readability without clutter.
