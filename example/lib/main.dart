@@ -286,12 +286,12 @@ class MyHomePage extends StatelessWidget {
                       onZoomChanged: (z) => debugPrint('zoom: $z'),
                       onEventTap: (e) =>
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
-                              ),
-                            ),
+                        SnackBar(
+                          content: Text(
+                            'Tapped: ${e.title} @ ${e.date.toIso8601String()}',
                           ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 16),
