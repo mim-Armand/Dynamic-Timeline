@@ -1,6 +1,6 @@
 name: interactive_timeline
 description: A performant, reusable horizontal timeline widget with LOD ticks, panning, anchored zoom, and customizable markers/ticks.
-version: 0.2.1
+version: 0.3.0
 
 homepage: https://mim-armand.github.io/Dynamic-Timeline/
 repository: https://github.com/mim-Armand/Dynamic-Timeline

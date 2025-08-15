@@ -37,3 +37,24 @@
 - docs: Update README and site install snippets to latest version
 - chore: Raise Flutter SDK constraint to `>=3.22.0` in `pubspec.yaml`
 
+## 0.3.0
+
+- feat: Duration spans and sticky labels
+  - `TimelineEvent.endDate` draws a range between `date` and `endDate`.
+  - Sticky alignment for ranged events: `labelAlign` (`left|right`) and `stickyLabel`.
+  - Full-visibility clamping with width hint: `markerMainExtentPx` and widget-level
+    `defaultStickyMarkerExtentPx`.
+- feat: Stacking and crowd-control
+  - Marker clustering with `markerClusterPx`, stacking with `markerMaxStackLayers` and `markerStackSpacing`.
+  - Spans stack the same as markers; items beyond the max layers fade.
+  - Global fade: `markerFadedOpacity`; per-event override: `TimelineEvent.fadedOpacity`.
+  - Optional alternating lanes: `stackAlternateLanes` to stagger stacks above/below the axis.
+- feat: Per-event colors
+  - `TimelineEvent.spanColor`, `poleColor`, `markerColor`.
+- feat: End poles for spans
+  - `showSpanEndPoles` draws short lines from span ends to the axis in the span color/opacities.
+  - `spanEndPoleThickness` controls stroke width (0.0 = hairline default).
+- feat: Optional marker poles from axis to marker position
+  - Global: `showEventPole`, `eventPoleThickness`, `eventPoleColor` (overridable per-event via `poleColor`).
+- docs: Update README with new APIs and examples; update example app to showcase spans, stacking, alternating lanes, and span end poles.
+

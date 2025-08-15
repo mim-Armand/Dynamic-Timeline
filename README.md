@@ -87,6 +87,50 @@ SizedBox(
 - Callbacks: `onZoomChanged(double)`, `onEventTap(TimelineEvent)`
 - Behavior: anchored zoom, double-tap to center, suppress ancestor pointer events
 
+#### Event ranges and stacking
+
+- Per-event range: `TimelineEvent(endDate)` draws a span between `date` and `endDate`.
+- Sticky labels: `labelAlign` (`left|right`), `stickyLabel` (default true for ranges),
+  `markerMainExtentPx` (width hint for full-visibility clamping) and widget-level
+  `defaultStickyMarkerExtentPx`.
+- Per-event colors: `spanColor`, `poleColor`, `markerColor`.
+- Stacking and fading (markers and spans):
+  - `enableMarkerStacking` (default true), `markerClusterPx`, `markerMaxStackLayers`,
+    `markerStackSpacing`, `markerFadedOpacity` (global), `fadedOpacity` (per event).
+  - `stackAlternateLanes` to alternate stack lanes above/below (or left/right) the axis.
+- Span end poles: `showSpanEndPoles` draws short lines from span ends to the axis,
+  using the same color/opacity as the span. Control thickness via
+  `spanEndPoleThickness` (0.0 = hairline default).
+
+Example with ranges and stacking:
+
+```dart
+final now = DateTime.now().toUtc();
+final events = [
+  TimelineEvent(
+    date: now.subtract(const Duration(days: 10)),
+    endDate: now.add(const Duration(days: 5)),
+    title: 'Sprint',
+    labelAlign: EventLabelAlign.right,
+    stickyLabel: true,
+    spanColor: Colors.orange,
+  ),
+  TimelineEvent(date: now, title: 'Today', importance: 5),
+];
+
+TimelineWidget(
+  height: 120,
+  events: events,
+  showEventSpans: true,
+  showSpanEndPoles: true,
+  spanEndPoleThickness: 0.0, // hairline
+  stackAlternateLanes: true,
+  markerMaxStackLayers: 3,
+  markerClusterPx: 48,
+  markerStackSpacing: 14,
+)
+```
+
 #### Fisheye lens (optional)
 
 Enable a dock-like magnification around the pointer along the main axis. Events, tick positions, and optionally tick heights and label font sizes grow smoothly near the cursor. Includes hover/long‑press activation, smoothing, and subtle visuals.

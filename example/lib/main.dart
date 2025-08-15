@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:interactive_timeline/interactive_timeline.dart';
 
@@ -52,15 +53,42 @@ class MyHomePage extends StatelessWidget {
         date: now.subtract(const Duration(days: 30)),
         title: 'Last month',
       ),
-      TimelineEvent(date: now, title: 'Today'),
+      // Ranged event with sticky right alignment and a pole
+      TimelineEvent(
+        date: now.subtract(const Duration(days: 132)),
+        endDate: now.add(const Duration(days: 120)),
+        title: 'Sprint 42',
+        labelAlign: EventLabelAlign.right,
+        stickyLabel: true,
+        showPole: true,
+        importance: 5,
+        spanColor: Colors.orangeAccent,
+      ),
+      TimelineEvent(date: now, title: 'Today', importance: 10),
       TimelineEvent(
         date: now.add(const Duration(days: 30)),
         title: 'Next month',
+        importance: 2,
       ),
       TimelineEvent(
         date: now.add(const Duration(days: 365)),
         title: 'Next year',
       ),
+      // Dense cluster to demonstrate stacking and fading
+      ...List.generate(2, (idx) {
+        final i = idx + 1;
+        final random = Random();
+        const min = 1;
+        const max = 10;
+        final startDays = random.nextInt(max - min + 1) + min;
+        final endDays = random.nextInt(max - min + 1) + min;
+        return TimelineEvent(
+          date: now.subtract(Duration(days: startDays)),
+          endDate: now.add(Duration(days: endDays)),
+          title: 'Cluster $i',
+          importance: i == 1 ? 3 : 1,
+        );
+      }),
     ];
 
     return Scaffold(
@@ -80,6 +108,12 @@ class MyHomePage extends StatelessWidget {
                   height: 120,
                   debugMode: false,
                   events: events,
+                  showEventSpans: true,
+                  showSpanEndPoles: true,
+                  spanEndPoleThickness: 1.5,
+                  showEventPole: true,
+                  markerMaxStackLayers: 5,
+                  markerClusterPx: 40,
                   minZoomLOD: TimeScaleLOD.month,
                   maxZoomLOD: TimeScaleLOD.century,
                   enableFisheye: true,

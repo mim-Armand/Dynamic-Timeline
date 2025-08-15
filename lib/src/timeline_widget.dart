@@ -32,6 +32,12 @@ class EventMarkerInfo {
   final bool vertical;
   final Size canvasSize;
   final double markerScale;
+  // Stacking and visibility
+  final int stackIndex;
+  final int stackCount;
+  final double opacity;
+  // Sticky/clamp state (true if clamped to viewport edge)
+  final bool stickyClamped;
   const EventMarkerInfo({
     required this.position,
     required this.zoom,
@@ -40,6 +46,10 @@ class EventMarkerInfo {
     required this.vertical,
     required this.canvasSize,
     required this.markerScale,
+    required this.stackIndex,
+    required this.stackCount,
+    required this.opacity,
+    required this.stickyClamped,
   });
 }
 
@@ -94,19 +104,45 @@ enum TimeScaleLOD {
 
 class TimelineEvent {
   final DateTime date;
+  final DateTime? endDate; // If provided, event spans a range
   final String title;
   final String? description;
   // Optional per-event marker positioning/scaling overrides
   final Offset? markerOffset;
   final double? markerScale;
+  // Optional per-event alignment and behavior
+  final EventLabelAlign? labelAlign; // For ranged events
+  final bool? stickyLabel; // clamp to edge while span is in view
+  final bool? stickyKeepFullyVisible; // if true, offset/clamp using extent
+  final double? markerMainExtentPx; // estimated width/height along main axis
+  final bool? showPole; // draw a pole from axis to marker
+  final int importance; // higher = preferred to show when crowded
+  final Color? spanColor; // optional per-event span color
+  final Color? poleColor; // optional per-event pole color
+  final Color? markerColor; // optional per-event default marker color
+  final double? fadedOpacity; // per-event fade override when stacked out
   const TimelineEvent({
     required this.date,
+    this.endDate,
     required this.title,
     this.description,
     this.markerOffset,
     this.markerScale,
+    this.labelAlign,
+    this.stickyLabel,
+    this.stickyKeepFullyVisible,
+    this.markerMainExtentPx,
+    this.showPole,
+    this.importance = 0,
+    this.spanColor,
+    this.poleColor,
+    this.markerColor,
+    this.fadedOpacity,
   });
 }
+
+/// Alignment for a ranged event's label when sticky behavior is enabled.
+enum EventLabelAlign { left, right }
 
 class TimelineWidget extends StatefulWidget {
   final double height;
@@ -148,6 +184,26 @@ class TimelineWidget extends StatefulWidget {
   // Default positioning for event markers when not provided per-event
   final Offset eventMarkerOffset;
   final double eventMarkerScale;
+  // Event range indicator (spans) and poles
+  final bool showEventSpans;
+  final double eventSpanThickness;
+  final Color? eventSpanColor; // default derives from eventColor with opacity
+  // Optional short poles at the start and end of spans
+  final bool showSpanEndPoles;
+  final double spanEndPoleThickness; // 0.0 = hairline
+  final bool showEventPole; // can be overridden per-event
+  final double eventPoleThickness;
+  final Color? eventPoleColor;
+  // Estimated marker extent along main axis when clamping sticky labels
+  final double defaultStickyMarkerExtentPx;
+  // Marker stacking/fading
+  final bool enableMarkerStacking;
+  final int markerMaxStackLayers;
+  final double markerStackSpacing;
+  final double markerClusterPx;
+  final double markerFadedOpacity;
+  // Stacking lane behavior
+  final bool stackAlternateLanes; // alternate lanes above/below (or left/right)
   // Tick customization
   final TickShapePainter? tickPainter;
   final Offset tickOffset;
@@ -227,6 +283,21 @@ class TimelineWidget extends StatefulWidget {
     this.eventMarkerPainter,
     this.eventMarkerOffset = Offset.zero,
     this.eventMarkerScale = 1.0,
+    this.showEventSpans = true,
+    this.eventSpanThickness = 4.0,
+    this.eventSpanColor,
+    this.showSpanEndPoles = false,
+    this.spanEndPoleThickness = 0.0,
+    this.showEventPole = false,
+    this.eventPoleThickness = 1.0,
+    this.eventPoleColor,
+    this.defaultStickyMarkerExtentPx = 80.0,
+    this.enableMarkerStacking = true,
+    this.markerMaxStackLayers = 3,
+    this.markerStackSpacing = 14.0,
+    this.markerClusterPx = 36.0,
+    this.markerFadedOpacity = 0.18,
+    this.stackAlternateLanes = false,
     this.tickPainter,
     this.tickOffset = Offset.zero,
     this.tickScale = 1.0,
@@ -272,6 +343,8 @@ class _TimelineWidgetState extends State<TimelineWidget>
   late final Ticker _lensTicker;
   late final AnimationController _lensActivationCtrl;
   Duration _lastLensTick = Duration.zero;
+  // Cached per-frame event layouts shared by painter and overlay
+  List<_EventLayout> _eventLayouts = const [];
 
   @override
   void initState() {
@@ -285,6 +358,199 @@ class _TimelineWidgetState extends State<TimelineWidget>
       value: 0,
     );
     _lensTicker = createTicker(_onLensTick)..start();
+  }
+
+  List<_EventLayout> _computeEventLayouts(Size size, bool vertical) {
+    final List<_EventLayout> result = [];
+    final double centerCross = vertical ? size.width / 2 : size.height / 2;
+    final double viewExtent = vertical ? size.height : size.width;
+    final double scale = widget.basePixelsPerMillisecond * _zoom;
+    final double leftMs = -_panOffset / scale;
+    final bool lensActive = widget.enableFisheye &&
+        _lensCenterMain != null &&
+        _lensActivationCtrl.value > 0;
+
+    double factorAt(double mainPx) {
+      if (!lensActive) return 1.0;
+      final dx = (mainPx - _lensCenterMain!).abs();
+      final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
+      final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
+      return 1.0 +
+          (widget.fisheyeIntensity - 1.0) * falloff * _lensActivationCtrl.value;
+    }
+
+    double mapMain(double v) {
+      if (!lensActive) return v;
+      final f = factorAt(v);
+      return _lensCenterMain! + (v - _lensCenterMain!) * f;
+    }
+
+    double toMainPx(DateTime dt) =>
+        (dt.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
+
+    // Build initial entries
+    for (final ev in widget.events) {
+      final double mainPos = toMainPx(ev.date.toUtc());
+      final double mappedMain = mapMain(mainPos);
+      final double localScale =
+          widget.enableFisheye && widget.fisheyeScaleMarkers
+              ? factorAt(mainPos)
+              : 1.0;
+      final Offset baseOffset = (ev.markerOffset ?? widget.eventMarkerOffset);
+      bool hasSpan = ev.endDate != null;
+      double spanStart = 0, spanEnd = 0;
+      double spanStartMapped = 0, spanEndMapped = 0;
+      if (hasSpan) {
+        final DateTime endUtc = ev.endDate!.toUtc();
+        final double a = toMainPx(ev.date.toUtc());
+        final double b = toMainPx(endUtc);
+        spanStart = math.min(a, b);
+        spanEnd = math.max(a, b);
+        spanStartMapped = mapMain(spanStart);
+        spanEndMapped = mapMain(spanEnd);
+      }
+
+      // Sticky behavior for ranged events
+      bool stickyEnabled = hasSpan ? (ev.stickyLabel ?? true) : false;
+      final EventLabelAlign align = ev.labelAlign ?? EventLabelAlign.right;
+      double markerMain = mappedMain;
+      bool stickyClamped = false;
+      if (stickyEnabled) {
+        final double startClamp = spanStartMapped.clamp(0.0, viewExtent);
+        final double endClamp = spanEndMapped.clamp(0.0, viewExtent);
+        final bool intersects =
+            spanEndMapped >= 0 && spanStartMapped <= viewExtent;
+        if (intersects) {
+          // Estimate marker main-axis extent to keep fully visible at the edge
+          final double estimatedExtent =
+              (ev.markerMainExtentPx ?? widget.defaultStickyMarkerExtentPx);
+          final double scaledExtent =
+              estimatedExtent * (widget.fisheyeScaleMarkers ? localScale : 1.0);
+          final double mainUserOffset =
+              vertical ? baseOffset.dy : baseOffset.dx;
+          if (align == EventLabelAlign.left) {
+            markerMain = startClamp -
+                (ev.stickyKeepFullyVisible ?? true ? mainUserOffset : 0.0);
+          } else {
+            final double edge = endClamp;
+            markerMain = (ev.stickyKeepFullyVisible ?? true)
+                ? (edge - scaledExtent) - mainUserOffset
+                : edge;
+          }
+          if (ev.stickyKeepFullyVisible ?? true) {
+            markerMain = markerMain.clamp(0.0, viewExtent - scaledExtent);
+          }
+          stickyClamped = (markerMain <= 0.0 || markerMain >= viewExtent);
+        } else {
+          // Entire span out of view: skip
+          continue;
+        }
+      }
+
+      // Initial cross-axis position (before stacking)
+      final double baseCross = centerCross;
+      // Build layout; stacking assigned later
+      result.add(_EventLayout(
+        event: ev,
+        markerMain: markerMain,
+        axisCenterCross: baseCross,
+        baseOffset: baseOffset,
+        localScale: localScale,
+        hasSpan: hasSpan,
+        spanStartClamped:
+            hasSpan ? spanStartMapped.clamp(0.0, viewExtent) : 0.0,
+        spanEndClamped: hasSpan ? spanEndMapped.clamp(0.0, viewExtent) : 0.0,
+        stickyClamped: stickyClamped,
+      ));
+    }
+
+    // Sort by main position for clustering
+    result.sort((a, b) => a.markerMain.compareTo(b.markerMain));
+
+    // Cluster by proximity and assign stack indices by importance
+    final double clusterPx = widget.markerClusterPx;
+    final int maxLayers = math.max(1, widget.markerMaxStackLayers);
+    int i = 0;
+    while (i < result.length) {
+      int j = i + 1;
+      final double anchor = result[i].markerMain;
+      while (j < result.length &&
+          (result[j].markerMain - anchor).abs() <= clusterPx) {
+        j++;
+      }
+      final group = result.sublist(i, j);
+      group.sort((a, b) => b.event.importance.compareTo(a.event.importance));
+      final int count = group.length;
+      for (int k = 0; k < count; k++) {
+        final layout = group[k];
+        final int assignedIndex = k;
+        layout.stackIndex = math.min(assignedIndex, maxLayers - 1);
+        layout.stackCount = count;
+        final bool faded = assignedIndex >= maxLayers;
+        layout.opacity = faded ? widget.markerFadedOpacity : 1.0;
+      }
+      i = j;
+    }
+
+    // Span layering (avoid overlap by stacking spans along cross-axis)
+    final List<_SpanInterval> intervals = [];
+    for (final l in result) {
+      if (!l.hasSpan) continue;
+      intervals.add(_SpanInterval(
+        start: l.spanStartClamped,
+        end: l.spanEndClamped,
+        importance: l.event.importance,
+        layout: l,
+      ));
+    }
+    // Greedy layering: sort by start then by higher importance first
+    intervals.sort((a, b) {
+      final c = a.start.compareTo(b.start);
+      if (c != 0) return c;
+      return b.importance.compareTo(a.importance);
+    });
+    // Active layer end positions
+    final List<double> layerEnds = [];
+    for (final iv in intervals) {
+      // find first layer where iv.start > layerEnds[layer]
+      int layer = 0;
+      bool placed = false;
+      for (; layer < layerEnds.length; layer++) {
+        if (iv.start > layerEnds[layer]) {
+          layerEnds[layer] = iv.end;
+          iv.layout.spanStackIndex = layer;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        layerEnds.add(iv.end);
+        iv.layout.spanStackIndex = layerEnds.length - 1;
+      }
+      // Fade spans beyond max layers using same rules as markers
+      final bool spanFaded = iv.layout.spanStackIndex >= maxLayers;
+      final double baseFade =
+          iv.layout.event.fadedOpacity ?? widget.markerFadedOpacity;
+      iv.layout.spanOpacity = spanFaded ? baseFade.clamp(0.0, 1.0) : 1.0;
+    }
+
+    // Compute final marker positions including stacking offset and user offset
+    for (final l in result) {
+      final int lane = l.stackIndex;
+      final double laneDir =
+          (widget.stackAlternateLanes && (lane % 2 == 1)) ? -1.0 : 1.0;
+      final double crossOffset = widget.markerStackSpacing * lane;
+      final double signedOffset = crossOffset * laneDir;
+      final double cross = vertical
+          ? (l.axisCenterCross + (l.baseOffset.dx)) + signedOffset
+          : (l.axisCenterCross + (l.baseOffset.dy)) - signedOffset;
+      final double main =
+          l.markerMain + (vertical ? l.baseOffset.dy : l.baseOffset.dx);
+      l.markerPosition = vertical ? Offset(cross, main) : Offset(main, cross);
+      l.markerScale = l.localScale;
+    }
+
+    return result;
   }
 
   void _applyZoomLODExtents() {
@@ -531,6 +797,14 @@ class _TimelineWidgetState extends State<TimelineWidget>
                       child: Stack(
                         clipBehavior: Clip.hardEdge,
                         children: [
+                          // Compute event layouts once per frame for consistency
+                          Builder(builder: (context) {
+                            _eventLayouts = _computeEventLayouts(
+                              Size(paintWidth, paintHeight),
+                              vertical,
+                            );
+                            return const SizedBox.shrink();
+                          }),
                           // Axis, grid, ticks, and optionally event shapes
                           CustomPaint(
                             size: Size(paintWidth, paintHeight),
@@ -554,6 +828,22 @@ class _TimelineWidgetState extends State<TimelineWidget>
                               eventMarkerPainter: widget.eventMarkerPainter,
                               eventMarkerOffset: widget.eventMarkerOffset,
                               eventMarkerScale: widget.eventMarkerScale,
+                              // Spans/poles/stacking
+                              showEventSpans: widget.showEventSpans,
+                              eventSpanThickness: widget.eventSpanThickness,
+                              eventSpanColor: widget.eventSpanColor,
+                              showSpanEndPoles: widget.showSpanEndPoles,
+                              spanEndPoleThickness: widget.spanEndPoleThickness,
+                              showEventPole: widget.showEventPole,
+                              eventPoleThickness: widget.eventPoleThickness,
+                              eventPoleColor: widget.eventPoleColor,
+                              enableMarkerStacking: widget.enableMarkerStacking,
+                              markerMaxStackLayers: widget.markerMaxStackLayers,
+                              markerStackSpacing: widget.markerStackSpacing,
+                              markerClusterPx: widget.markerClusterPx,
+                              markerFadedOpacity: widget.markerFadedOpacity,
+                              layouts: _eventLayouts,
+                              stackAlternateLanes: widget.stackAlternateLanes,
                               tickOffset: widget.tickOffset,
                               tickScale: widget.tickScale,
                               showDefaultEventMarker:
@@ -656,33 +946,11 @@ class _TimelineWidgetState extends State<TimelineWidget>
   }
 
   TimelineEvent? _hitTestEvent(Offset p, Size size) {
-    final base = widget.basePixelsPerMillisecond;
-    final scale = base * _zoom;
-    final leftMs = -_panOffset / scale;
-    final bool vertical = widget.orientation == Axis.vertical;
-    // naive marker hit test: circle radius 8 at axis center
-    final axisCenter = vertical ? size.width * 0.5 : size.height * 0.5;
-    final double activation =
-        widget.enableFisheye ? _lensActivationCtrl.value : 0.0;
-    for (final ev in widget.events) {
-      final mainPos =
-          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      double mappedMain = mainPos;
-      double localScale = 1.0;
-      if (widget.enableFisheye && _lensCenterMain != null && activation > 0) {
-        final dx = (mainPos - _lensCenterMain!).abs();
-        final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
-        final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
-        final factor =
-            1.0 + (widget.fisheyeIntensity - 1.0) * falloff * activation;
-        mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
-        localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
-      }
-      Offset pos = vertical
-          ? Offset(axisCenter, mappedMain)
-          : Offset(mappedMain, axisCenter);
-      final Offset userOffset = (ev.markerOffset ?? widget.eventMarkerOffset);
-      pos = pos + userOffset;
+    // Use precomputed layouts for accuracy with sticky/stacking
+    for (final layout in _eventLayouts) {
+      final ev = layout.event;
+      final double localScale = layout.markerScale;
+      final Offset pos = layout.markerPosition;
       final double hitRadius =
           10 * (ev.markerScale ?? widget.eventMarkerScale) * localScale;
       if ((p - pos).distance <= hitRadius) return ev;
@@ -693,58 +961,36 @@ class _TimelineWidgetState extends State<TimelineWidget>
   List<Widget> _buildEventMarkerWidgets(Size size, bool vertical) {
     final List<Widget> children = [];
     if (widget.eventMarkerBuilder == null) return children;
-    final base = widget.basePixelsPerMillisecond;
-    final scale = base * _zoom;
-    final leftMs = -_panOffset / scale;
-    final double centerCross = vertical ? size.width / 2 : size.height / 2;
-    final double activation =
-        widget.enableFisheye ? _lensActivationCtrl.value : 0.0;
-    for (final ev in widget.events) {
-      final mainPos =
-          (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-      double mappedMain = mainPos;
-      double localScale = 1.0;
-      if (widget.enableFisheye && _lensCenterMain != null && activation > 0) {
-        final dx = (mainPos - _lensCenterMain!).abs();
-        final t = (dx / widget.fisheyeRadiusPx).clamp(0.0, 1.0);
-        final falloff = math.pow(1.0 - t, widget.fisheyeHardness).toDouble();
-        final factor =
-            1.0 + (widget.fisheyeIntensity - 1.0) * falloff * activation;
-        mappedMain = _lensCenterMain! + (mainPos - _lensCenterMain!) * factor;
-        localScale = widget.fisheyeScaleMarkers ? factor : 1.0;
-      }
-      Offset basePos = vertical
-          ? Offset(centerCross, mappedMain)
-          : Offset(mappedMain, centerCross);
-      basePos = basePos + (ev.markerOffset ?? widget.eventMarkerOffset);
+    for (final layout in _eventLayouts) {
+      final ev = layout.event;
       final info = EventMarkerInfo(
-        position: basePos,
+        position: layout.markerPosition,
         zoom: _zoom,
-        pxPerMs: scale,
-        axisCenterCross: centerCross,
+        pxPerMs: widget.basePixelsPerMillisecond * _zoom,
+        axisCenterCross: layout.axisCenterCross,
         vertical: vertical,
         canvasSize: size,
-        markerScale: (ev.markerScale ?? widget.eventMarkerScale) * localScale,
+        markerScale:
+            (ev.markerScale ?? widget.eventMarkerScale) * layout.markerScale,
+        stackIndex: layout.stackIndex,
+        stackCount: layout.stackCount,
+        opacity: layout.opacity,
+        stickyClamped: layout.stickyClamped,
       );
+      final content = widget.eventMarkerBuilder!(context, ev, info);
       final w = GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () => widget.onEventTap?.call(ev),
-        child: widget.eventMarkerBuilder!(context, ev, info),
+        child: Opacity(opacity: info.opacity, child: content),
       );
-      final child = Transform.translate(
-        offset: Offset(basePos.dx, basePos.dy),
-        child: Transform.scale(
-          scale: info.markerScale,
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: w,
-          ),
-        ),
-      );
+      // Place built widget at computed position/scale with fading
       children.add(Positioned(
         left: 0,
         top: 0,
-        child: child,
+        child: Transform.translate(
+          offset: Offset(info.position.dx, info.position.dy),
+          child: Transform.scale(scale: info.markerScale, child: w),
+        ),
       ));
     }
     return children;
@@ -773,6 +1019,21 @@ class _Painter extends CustomPainter {
   final EventMarkerShapePainter? eventMarkerPainter;
   final Offset eventMarkerOffset;
   final double eventMarkerScale;
+  // Spans/poles/stacking
+  final bool showEventSpans;
+  final double eventSpanThickness;
+  final Color? eventSpanColor;
+  final bool showSpanEndPoles;
+  final double spanEndPoleThickness;
+  final bool showEventPole;
+  final double eventPoleThickness;
+  final Color? eventPoleColor;
+  final bool enableMarkerStacking;
+  final int markerMaxStackLayers;
+  final double markerStackSpacing;
+  final double markerClusterPx;
+  final double markerFadedOpacity;
+  final List<_EventLayout> layouts;
   final Offset tickOffset;
   final double tickScale;
   final bool showDefaultEventMarker;
@@ -798,6 +1059,8 @@ class _Painter extends CustomPainter {
   final double glowBlurSigma;
   final BlendMode? blendMode;
   final BlendMode? glowBlendMode;
+  final bool stackAlternateLanes;
+
   _Painter({
     required this.events,
     required this.zoom,
@@ -818,6 +1081,21 @@ class _Painter extends CustomPainter {
     required this.eventMarkerPainter,
     required this.eventMarkerOffset,
     required this.eventMarkerScale,
+    required this.showEventSpans,
+    required this.eventSpanThickness,
+    required this.eventSpanColor,
+    required this.showSpanEndPoles,
+    required this.spanEndPoleThickness,
+    required this.showEventPole,
+    required this.eventPoleThickness,
+    required this.eventPoleColor,
+    required this.enableMarkerStacking,
+    required this.markerMaxStackLayers,
+    required this.markerStackSpacing,
+    required this.markerClusterPx,
+    required this.markerFadedOpacity,
+    required this.layouts,
+    required this.stackAlternateLanes,
     required this.tickOffset,
     required this.tickScale,
     required this.showDefaultEventMarker,
@@ -886,7 +1164,6 @@ class _Painter extends CustomPainter {
     // The manager selects a time unit (LOD) based on current zoom so that
     // consecutive major ticks are roughly a target spacing in pixels.
     final scale = basePxPerMs * zoom;
-    final leftMs = -panOffset / scale;
     // Generate ticks (minor + major) and an optional grid for the viewport
     final tickManager = _PackageTickManager.instance
       ..initialize(
@@ -1147,44 +1424,143 @@ class _Painter extends CustomPainter {
     }
 
     // Events
-    // Draw event markers if using shape painter. If a widget builder is
-    // provided, the widgets are drawn in the overlaying Stack.
+    // Draw spans first (under markers)
+    if (showEventSpans) {
+      for (final layout in layouts) {
+        if (!layout.hasSpan) continue;
+        final Color col = layout.event.spanColor ??
+            eventSpanColor ??
+            eventColor.withValues(alpha: 0.35);
+        final double op = layout.spanOpacity;
+        final p = Paint()
+          ..color = col.withValues(alpha: op)
+          ..strokeWidth = eventSpanThickness
+          ..strokeCap = StrokeCap.round;
+        // Offset span along cross-axis according to span stack
+        final double spanCrossOffset =
+            markerStackSpacing * layout.spanStackIndex;
+        if (!vertical) {
+          final int lane = layout.spanStackIndex;
+          final double laneDir =
+              (stackAlternateLanes && (lane % 2 == 1)) ? -1.0 : 1.0;
+          final double y = centerCross +
+              (eventMarkerOffset.dy) -
+              (spanCrossOffset * laneDir);
+          canvas.drawLine(
+            Offset(layout.spanStartClamped, y),
+            Offset(layout.spanEndClamped, y),
+            p,
+          );
+          if (showSpanEndPoles) {
+            final Paint pp = Paint()
+              ..color = p.color
+              ..strokeWidth =
+                  (spanEndPoleThickness <= 0.0 ? 0.0 : spanEndPoleThickness)
+              ..strokeCap = StrokeCap.round;
+            // Poles from span line to axis line
+            canvas.drawLine(
+              Offset(layout.spanStartClamped, y),
+              Offset(layout.spanStartClamped, centerCross),
+              pp,
+            );
+            canvas.drawLine(
+              Offset(layout.spanEndClamped, y),
+              Offset(layout.spanEndClamped, centerCross),
+              pp,
+            );
+          }
+        } else {
+          final int lane = layout.spanStackIndex;
+          final double laneDir =
+              (stackAlternateLanes && (lane % 2 == 1)) ? -1.0 : 1.0;
+          final double x = centerCross +
+              (eventMarkerOffset.dx) +
+              (spanCrossOffset * laneDir);
+          canvas.drawLine(
+            Offset(x, layout.spanStartClamped),
+            Offset(x, layout.spanEndClamped),
+            p,
+          );
+          if (showSpanEndPoles) {
+            final Paint pp = Paint()
+              ..color = p.color
+              ..strokeWidth =
+                  (spanEndPoleThickness <= 0.0 ? 0.0 : spanEndPoleThickness)
+              ..strokeCap = StrokeCap.round;
+            // Poles from span line to axis line
+            canvas.drawLine(
+              Offset(x, layout.spanStartClamped),
+              Offset(centerCross, layout.spanStartClamped),
+              pp,
+            );
+            canvas.drawLine(
+              Offset(x, layout.spanEndClamped),
+              Offset(centerCross, layout.spanEndClamped),
+              pp,
+            );
+          }
+        }
+      }
+    }
+
+    // Optional poles from axis to marker position
+    for (final layout in layouts) {
+      final bool pole = (layout.event.showPole ?? showEventPole);
+      if (!pole) continue;
+      final p = Paint()
+        ..color = (layout.event.poleColor ??
+            eventPoleColor ??
+            eventColor.withValues(alpha: 0.6))
+        ..strokeWidth = eventPoleThickness;
+      if (!vertical) {
+        canvas.drawLine(
+          Offset(layout.markerMain, centerCross),
+          Offset(layout.markerMain, layout.markerPosition.dy),
+          p,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(centerCross, layout.markerMain),
+          Offset(layout.markerPosition.dx, layout.markerMain),
+          p,
+        );
+      }
+    }
+
+    // Draw event markers if using shape painter; otherwise default circles
     if (eventMarkerPainter != null) {
-      for (final ev in events) {
-        final mainPos =
-            (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-        final mappedMain = mapMain(mainPos);
-        final localFactor = lensScaleMarkers ? factorAt(mainPos) : 1.0;
-        Offset basePos = vertical
-            ? Offset(centerCross, mappedMain)
-            : Offset(mappedMain, centerCross);
-        final Offset userOffset = (ev.markerOffset ?? eventMarkerOffset);
-        basePos = basePos + userOffset;
+      for (final layout in layouts) {
+        final ev = layout.event;
         final info = EventMarkerInfo(
-          position: basePos,
+          position: layout.markerPosition,
           zoom: zoom,
           pxPerMs: scale,
           axisCenterCross: centerCross,
           vertical: vertical,
           canvasSize: size,
-          markerScale: (ev.markerScale ?? eventMarkerScale) * localFactor,
+          markerScale:
+              (ev.markerScale ?? eventMarkerScale) * layout.markerScale,
+          stackIndex: layout.stackIndex,
+          stackCount: layout.stackCount,
+          opacity: layout.opacity,
+          stickyClamped: layout.stickyClamped,
         );
+        canvas.saveLayer(null, Paint());
         eventMarkerPainter!(canvas, ev, info);
+        canvas.restore();
       }
     } else if (showDefaultEventMarker) {
-      // Default simple circles
-      final marker = Paint()..color = eventColor;
-      for (final ev in events) {
-        final mainPos =
-            (ev.date.millisecondsSinceEpoch.toDouble() - leftMs) * scale;
-        final mappedMain = mapMain(mainPos);
-        final localFactor = lensScaleMarkers ? factorAt(mainPos) : 1.0;
-        Offset pos = vertical
-            ? Offset(centerCross, mappedMain)
-            : Offset(mappedMain, centerCross);
-        pos = pos + (ev.markerOffset ?? eventMarkerOffset);
-        final double r = 6 * (ev.markerScale ?? eventMarkerScale) * localFactor;
-        canvas.drawCircle(pos, r, marker);
+      for (final layout in layouts) {
+        final ev = layout.event;
+        final double r =
+            6 * (ev.markerScale ?? eventMarkerScale) * layout.markerScale;
+        final pos = layout.markerPosition;
+        final Color base = (ev.markerColor ?? eventColor);
+        final double op = ev.fadedOpacity != null && layout.opacity < 1.0
+            ? ev.fadedOpacity!.clamp(0.0, 1.0)
+            : layout.opacity;
+        final p = Paint()..color = base.withValues(alpha: op);
+        canvas.drawCircle(pos, r, p);
       }
     }
   }
@@ -1198,6 +1574,7 @@ class _Painter extends CustomPainter {
       old.panOffset != panOffset ||
       old.tickPainter != tickPainter ||
       old.eventMarkerPainter != eventMarkerPainter ||
+      old.layouts != layouts ||
       old.lensEnabled != lensEnabled ||
       old.lensCenterMainAxis != lensCenterMainAxis ||
       old.lensIntensity != lensIntensity ||
@@ -1746,5 +2123,50 @@ class _Diagnostics {
     required this.targetPx,
     required this.majorMs,
     required this.minorMs,
+  });
+}
+
+class _EventLayout {
+  final TimelineEvent event;
+  final double axisCenterCross;
+  final Offset baseOffset;
+  final double localScale;
+  bool hasSpan;
+  double spanStartClamped;
+  double spanEndClamped;
+  bool stickyClamped;
+  // Assigned during layout
+  double markerMain = 0;
+  late Offset markerPosition;
+  int stackIndex = 0;
+  int stackCount = 1;
+  double markerScale = 1.0;
+  double opacity = 1.0;
+  // Span stacking/fading
+  int spanStackIndex = 0;
+  double spanOpacity = 1.0;
+  _EventLayout({
+    required this.event,
+    required this.markerMain,
+    required this.axisCenterCross,
+    required this.baseOffset,
+    required this.localScale,
+    required this.hasSpan,
+    required this.spanStartClamped,
+    required this.spanEndClamped,
+    required this.stickyClamped,
+  });
+}
+
+class _SpanInterval {
+  final double start;
+  final double end;
+  final int importance;
+  final _EventLayout layout;
+  _SpanInterval({
+    required this.start,
+    required this.end,
+    required this.importance,
+    required this.layout,
   });
 }
