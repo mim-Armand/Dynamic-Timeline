@@ -28,3 +28,12 @@
 
 - docs: Updated README and site with examples for new APIs.
 
+## 0.2.1
+
+- Improvments: Added optional visual effects to the magnifying lenz effect
+- fix: Replace deprecated Color API usages to support latest Flutter/Dart SDKs
+  - `Color.withOpacity(x)` → `Color.withValues(alpha: x)`
+  - `Color.value` (for cache keys) → `Color.toARGB32()`
+- docs: Update README and site install snippets to latest version
+- chore: Raise Flutter SDK constraint to `>=3.22.0` in `pubspec.yaml`
+

@@ -24,7 +24,7 @@ Add the package from pub.dev to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  interactive_timeline: ^0.1.0
+  interactive_timeline: ^0.2.1
 ```
 
 ## Quick Start

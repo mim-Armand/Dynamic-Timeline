@@ -1,4 +1,5 @@
 title: Interactive Timeline
+version: 0.2.1
 description: A performant, reusable horizontal timeline widget for Flutter with anchored zoom, panning, and auto-LOD ticks.
 theme: minima
 show_downloads: false

@@ -1,6 +1,6 @@
 name: interactive_timeline
 description: A performant, reusable horizontal timeline widget with LOD ticks, panning, anchored zoom, and customizable markers/ticks.
-version: 0.2.0
+version: 0.2.1
 
 homepage: https://mim-armand.github.io/Dynamic-Timeline/
 repository: https://github.com/mim-Armand/Dynamic-Timeline
@@ -15,7 +15,7 @@ topics:
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.16.0"
+  flutter: ">=3.22.0"
 
 dependencies:
   flutter:

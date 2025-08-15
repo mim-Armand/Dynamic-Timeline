@@ -24,7 +24,7 @@ Add to your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  interactive_timeline: ^0.1.0
+  interactive_timeline: ^0.2.1
 ```
 
 ### Installation (local path in a monorepo)
@@ -238,7 +238,7 @@ The example demonstrates:
 6. Consumers can depend on it with:
    ```yaml
    dependencies:
-     interactive_timeline: ^0.1.0
+     interactive_timeline: ^0.2.1
    ```
 
 ### Notes
@@ -253,7 +253,7 @@ The example demonstrates:
 
 - Fork the repo and create a feature branch from `main`.
 - Development setup:
-  - Flutter SDK 3.16+ (Dart 3)
+  - Flutter SDK 3.22+ (Dart 3)
   - Format and analyze before committing:
     - `dart format .`
     - `flutter analyze`
