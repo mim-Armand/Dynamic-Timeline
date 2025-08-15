@@ -892,7 +892,7 @@ class _Painter extends CustomPainter {
       ..initialize(
         axisColor: timelineColor,
         labelColor: tickLabelColor,
-        minorColor: (minorTickColor ?? timelineColor.withOpacity(0.7)),
+        minorColor: (minorTickColor ?? timelineColor.withValues(alpha: 0.7)),
         majorThickness: majorTickThickness,
         minorThickness: minorTickThickness,
       )
@@ -924,7 +924,7 @@ class _Painter extends CustomPainter {
         final ctx = TickDrawContext(
           size: size,
           axisColor: timelineColor,
-          minorColor: (minorTickColor ?? timelineColor.withOpacity(0.7)),
+          minorColor: (minorTickColor ?? timelineColor.withValues(alpha: 0.7)),
           tickOffset: tickOffset,
           tickScale: 1.0, // already baked into height above
         );
@@ -935,7 +935,7 @@ class _Painter extends CustomPainter {
               ..color = timelineColor
               ..strokeWidth = majorTickThickness)
             : (Paint()
-              ..color = (minorTickColor ?? timelineColor.withOpacity(0.7))
+              ..color = (minorTickColor ?? timelineColor.withValues(alpha: 0.7))
               ..strokeWidth = minorTickThickness);
         final double scaledH = tick.h * effectiveScale;
         if (!vertical) {
@@ -988,7 +988,7 @@ class _Painter extends CustomPainter {
           style = style.copyWith(fontSize: baseSize * localFactor);
         }
         final tp = _PackageTickManager.instance
-            ._tp('${tick.label}_${tickLabelColor.value}_12_5', style);
+            ._tp('${tick.label}_${tickLabelColor.toARGB32()}_12_5', style);
         tp.layout();
         if (!vertical) {
           final tx = mappedX + tickOffset.dx - tp.width / 2;
@@ -1031,7 +1031,7 @@ class _Painter extends CustomPainter {
           text: TextSpan(
             text: text,
             style: TextStyle(
-              color: Colors.black.withOpacity(0.85),
+              color: Colors.black.withValues(alpha: 0.85),
               fontSize: 12,
               height: 1.2,
             ),
@@ -1039,7 +1039,7 @@ class _Painter extends CustomPainter {
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: size.width - 8);
         // Background for readability
-        final bg = Paint()..color = Colors.white.withOpacity(0.7);
+        final bg = Paint()..color = Colors.white.withValues(alpha: 0.7);
         final rect = Rect.fromLTWH(4, 4, tp.width + 8, tp.height + 8);
         canvas.drawRect(rect, bg);
         tp.paint(canvas, const Offset(8, 8));
@@ -1052,7 +1052,7 @@ class _Painter extends CustomPainter {
       final indicatorAlpha = 0.35 * lensActivation;
       if (showLensIndicator && indicatorAlpha > 0) {
         final p = Paint()
-          ..color = baseColor.withOpacity(indicatorAlpha)
+          ..color = baseColor.withValues(alpha: indicatorAlpha)
           ..strokeWidth = 1.0
           ..blendMode = (blendMode ?? BlendMode.srcOver);
         if (!vertical) {
@@ -1090,7 +1090,7 @@ class _Painter extends CustomPainter {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      baseColor.withOpacity(op),
+                      baseColor.withValues(alpha: op),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 0.5, 1.0],
@@ -1098,7 +1098,7 @@ class _Painter extends CustomPainter {
                 : LinearGradient(
                     colors: [
                       Colors.transparent,
-                      baseColor.withOpacity(op),
+                      baseColor.withValues(alpha: op),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 0.5, 1.0],
@@ -1112,8 +1112,8 @@ class _Painter extends CustomPainter {
 
       // Optional glow highlighting like old radios
       if (glowEnabled) {
-        final glowBase =
-            (glowColor ?? baseColor).withOpacity(glowOpacity * lensActivation);
+        final glowBase = (glowColor ?? baseColor)
+            .withValues(alpha: glowOpacity * lensActivation);
         final glowPaint = Paint()
           ..color = glowBase
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowBlurSigma)
@@ -1256,7 +1256,7 @@ class _LensOverlayPainter extends CustomPainter {
     final indicatorAlpha = 0.35 * lensActivation;
     if (showLensIndicator && indicatorAlpha > 0) {
       final p = Paint()
-        ..color = baseColor.withOpacity(indicatorAlpha)
+        ..color = baseColor.withValues(alpha: indicatorAlpha)
         ..strokeWidth = 1.0
         ..blendMode = (blendMode ?? BlendMode.srcOver);
       if (!vertical) {
@@ -1294,7 +1294,7 @@ class _LensOverlayPainter extends CustomPainter {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    baseColor.withOpacity(op),
+                    baseColor.withValues(alpha: op),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.5, 1.0],
@@ -1302,7 +1302,7 @@ class _LensOverlayPainter extends CustomPainter {
               : LinearGradient(
                   colors: [
                     Colors.transparent,
-                    baseColor.withOpacity(op),
+                    baseColor.withValues(alpha: op),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.5, 1.0],
@@ -1315,8 +1315,8 @@ class _LensOverlayPainter extends CustomPainter {
     }
 
     if (glowEnabled) {
-      final glowBase =
-          (glowColor ?? baseColor).withOpacity(glowOpacity * lensActivation);
+      final glowBase = (glowColor ?? baseColor)
+          .withValues(alpha: glowOpacity * lensActivation);
       final glowPaint = Paint()
         ..color = glowBase
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowBlurSigma)
@@ -1397,7 +1397,7 @@ class _PackageTickManager {
         ..color = minorColor
         ..strokeWidth = minorThickness;
       _grid = Paint()
-        ..color = axisColor.withOpacity(0.25)
+        ..color = axisColor.withValues(alpha: 0.25)
         ..strokeWidth = 0.5;
       _labelColor = labelColor;
       _init = true;
@@ -1593,7 +1593,7 @@ class _PackageTickManager {
         if (fontFamilyOverride != null && fontFamilyOverride.isNotEmpty) {
           style = style.merge(TextStyle(fontFamily: fontFamilyOverride));
         }
-        final tp = _tp('${tick.label}_${_labelColor.value}_12_5', style);
+        final tp = _tp('${tick.label}_${_labelColor.toARGB32()}_12_5', style);
         tp.layout();
         if (!vertical) {
           final tx = tick.x + tickOffset.dx - tp.width / 2;
